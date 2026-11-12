@@ -9,6 +9,7 @@ import {
   Download,
   Footprints,
   Loader2,
+  MapPin,
   Navigation,
   Plus,
   Route as RouteIcon,
@@ -25,6 +26,7 @@ import {
 } from "./routeService";
 import { fetchWithDebug } from "../debug/debugFetch";
 import { inTauri, invokeTauri } from "../../infrastructure/tauri/runtime";
+import { searchSavedMarkers, type MarkerSearchHit } from "../markers/domain/markerSearch";
 
 type SearchHit = { display_name: string; lat: string; lon: string };
 
@@ -51,6 +53,7 @@ export default function RouteTool() {
   const [inputs, setInputs] = useState<string[]>([]);
   const [activeSearchIdx, setActiveSearchIdx] = useState<number | null>(null);
   const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
+  const [markerHits, setMarkerHits] = useState<MarkerSearchHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
@@ -100,8 +103,33 @@ export default function RouteTool() {
 
   if (tool !== "route") return null;
 
+  const searchMarkersLive = (idx: number, text: string) => {
+    const q = text.trim();
+    if (!q) {
+      setMarkerHits([]);
+      if (activeSearchIdx === idx) setSearchResults([]);
+      return;
+    }
+    setActiveSearchIdx(idx);
+    void searchSavedMarkers(q)
+      .then((hits) => setMarkerHits(hits))
+      .catch(() => setMarkerHits([]));
+  };
+
   const runSearch = async (idx: number, text: string) => {
     const q = text.trim();
+    if (!q) {
+      setSearchResults([]);
+      setMarkerHits([]);
+      return;
+    }
+    setActiveSearchIdx(idx);
+    try {
+      const mHits = await searchSavedMarkers(q);
+      setMarkerHits(mHits);
+    } catch {
+      setMarkerHits([]);
+    }
     if (q.length < 2) {
       setSearchResults([]);
       return;
@@ -110,7 +138,6 @@ export default function RouteTool() {
     const ac = new AbortController();
     searchAbortRef.current = ac;
     setSearching(true);
-    setActiveSearchIdx(idx);
     try {
       const r = await fetchWithDebug(
         `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=fi&q=${encodeURIComponent(q)}`,
@@ -136,8 +163,17 @@ export default function RouteTool() {
     const shortLabel = hit.display_name.split(",").slice(0, 2).join(", ");
     setRoutePoint(idx, { coord: [lon, lat], label: shortLabel });
     setSearchResults([]);
+    setMarkerHits([]);
     setActiveSearchIdx(null);
     window.dispatchEvent(new CustomEvent("map-focus", { detail: { lon, lat, zoom: 13 } }));
+  };
+
+  const selectMarkerHit = (idx: number, hit: MarkerSearchHit) => {
+    setRoutePoint(idx, { coord: [hit.lon, hit.lat], label: hit.title });
+    setSearchResults([]);
+    setMarkerHits([]);
+    setActiveSearchIdx(null);
+    window.dispatchEvent(new CustomEvent("map-focus", { detail: { lon: hit.lon, lat: hit.lat, zoom: 13 } }));
   };
 
   const pointBadge = (idx: number) => {
@@ -301,10 +337,15 @@ export default function RouteTool() {
                       next[idx] = val;
                       return next;
                     });
+                    searchMarkersLive(idx, val);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void runSearch(idx, inputs[idx] ?? "");
-                    if (e.key === "Escape") setActiveSearchIdx(null);
+                    if (e.key === "Escape") {
+                      setActiveSearchIdx(null);
+                      setMarkerHits([]);
+                      setSearchResults([]);
+                    }
                   }}
                   className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                 />
@@ -332,13 +373,29 @@ export default function RouteTool() {
                 )}
               </div>
 
-              {activeSearchIdx === idx && (searchResults.length > 0 || searching) && (
-                <div className="mt-1 max-h-36 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+              {activeSearchIdx === idx && (markerHits.length > 0 || searchResults.length > 0 || searching) && (
+                <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
                   {searching && (
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-slate-500">
                       <Loader2 size={12} className="animate-spin" /> Haetaan...
                     </div>
                   )}
+                  {markerHits.map((hit) => (
+                    <button
+                      key={`marker:${hit.id}`}
+                      type="button"
+                      onClick={() => selectMarkerHit(idx, hit)}
+                      className="flex w-full items-center justify-between gap-2 border-b border-slate-100 px-2.5 py-1.5 text-left text-[11px] hover:bg-slate-100 last:border-b-0 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                    >
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <MapPin size={12} className="shrink-0" style={{ color: hit.color }} />
+                        <span className="truncate font-medium">{hit.title}</span>
+                      </div>
+                      <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[9px] text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">
+                        Merkki
+                      </span>
+                    </button>
+                  ))}
                   {searchResults.map((hit, i) => (
                     <button
                       key={`${hit.lat}-${hit.lon}-${i}`}

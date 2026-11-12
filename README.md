@@ -27,12 +27,15 @@ käyttöjärjestelmän tunnussäilöön, eivät sovelluksen SQLite-tietokantaan.
 
 Frontend on jaettu ominaisuuksien ja integraatioiden mukaan:
 
-- `src/app` sisältää sovelluksen rungon, työkalupalkin ja yleiset dialogit.
-- `src/features/map` sisältää karttanäkymän, OpenLayers-integraation ja kartan tyylit.
-- `src/features/map/catalog` sisältää pohjakarttojen ja overlay-tasojen katalogit.
-- `src/features/measurements` sisältää mittausten muotoilun, viennin ja korkeusprofiilin.
+- `src/app` sisältää sovelluksen rungon, työkalupalkin, latausnäkymän ja yleiset dialogit.
+- `src/features/map` sisältää karttanäkymän, OpenLayers-integraation, paikkahaun ja kartan tyylit.
+- `src/features/layers` sisältää karttatasojen listan, ryhmittelyn ja editorit (oletuslähteet: `src-tauri/resources/default_maps.json`).
+- `src/features/markers` sisältää merkkikansiot, merkkipaneelin ja omien merkkien haun.
+- `src/features/measurements` sisältää mittausten muotoilun, GeoJSON-viennin ja korkeusprofiilin.
+- `src/features/routing` sisältää ilmaisen reitinhaun ja reittiohjeet (Valhalla + OSRM).
 - `src/features/location-info` sisältää koordinaatti-, korkeus- ja säätiedot.
-- `src/features/settings` sisältää asetustyypit ja oletusasetukset.
+- `src/features/settings` sisältää asetustyypit, lomakkeet ja oletusasetukset.
+- `src/features/debug` sisältää diagnostiikkanäkymän ja pyyntö-/tiiliseurannan.
 - `src/infrastructure/tauri` sisältää Tauri-, tile-, asetus- ja feature-rajapinnat.
 - `src/shared` sisältää ulkoisista ominaisuuksista riippumattomat yhteiset apurit.
 
