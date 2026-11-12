@@ -59,10 +59,13 @@ export default function FeaturePanel({
       {open && (
         <div className="max-h-[30vh] space-y-1 overflow-y-auto border-t px-3 py-2 dark:border-gray-700">
           {folderMenuOpen && (
-            <div className="absolute z-20 mt-[-0.25rem] w-48 rounded border border-slate-200 bg-white p-2 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
-              <input autoFocus className="w-full rounded border border-slate-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900" placeholder="Kansion nimi" value={folderDraft} onChange={(event) => onFolderDraftChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { onAddFolder(); onToggleFolderMenu(); } }} />
-              <button className="mt-1 w-full rounded bg-[#1671a8] px-2 py-1 text-xs text-white" onClick={() => { onAddFolder(); onToggleFolderMenu(); }}>Lisää kansio</button>
-            </div>
+            <>
+              <div className="fixed inset-0 z-15 cursor-default" onClick={onToggleFolderMenu} />
+              <div className="absolute z-20 mt-[-0.25rem] w-48 rounded-lg border border-slate-200 bg-white p-2 shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+                <input autoFocus className="w-full rounded border border-slate-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900" placeholder="Kansion nimi" value={folderDraft} onChange={(event) => onFolderDraftChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { onAddFolder(); onToggleFolderMenu(); } else if (event.key === "Escape") { onToggleFolderMenu(); } }} />
+                <button className="mt-1.5 w-full rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700" onClick={() => { onAddFolder(); onToggleFolderMenu(); }}>Lisää kansio</button>
+              </div>
+            </>
           )}
           {folders.map((folder: MarkerFolder) => {
             const folderFeatures = features.filter((feature) => feature.folder_id === folder.id);

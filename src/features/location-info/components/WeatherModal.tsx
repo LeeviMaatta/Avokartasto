@@ -17,9 +17,9 @@ export default function WeatherModal({ open, weather, apiKey, latitude, longitud
   const [forecastError, setForecastError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Pyöristys estää uudelleenhaun pienistä koordinaattimuutoksista modaalin ollessa auki.
-  const latKey = latitude.toFixed(2);
-  const lonKey = longitude.toFixed(2);
+  // Pyöristys (0.1° / ~11 km) estää turhat haut ja käyttää samaa välimuistia InfoBoxin kanssa.
+  const latKey = latitude.toFixed(1);
+  const lonKey = longitude.toFixed(1);
 
   useEffect(() => {
     if (!open || !apiKey) return;

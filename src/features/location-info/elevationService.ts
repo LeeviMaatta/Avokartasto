@@ -1,8 +1,17 @@
 const BASE = "https://api.open-meteo.com/v1/elevation";
-const BATCH_SIZE = 7;
+const BATCH_SIZE = 50;
 const MAX_RETRIES = 2;
+const MAX_CACHE_ENTRIES = 256;
 const cache = new Map<string, { value: number | null | (number | null)[]; expires: number }>();
 import { fetchWithDebug } from "../debug/debugFetch";
+
+const setCacheEntry = (key: string, value: number | null | (number | null)[]) => {
+  if (cache.size >= MAX_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) cache.delete(oldestKey);
+  }
+  cache.set(key, { value, expires: Date.now() + 60_000 });
+};
 
 const parseElevation = (value: unknown): number | null => {
   if (value === null) return null;
@@ -61,7 +70,7 @@ export async function elevationAt(lat: number, lon: number, signal?: AbortSignal
   }
   const raw = (j as { elevation: unknown }).elevation;
   const value = Array.isArray(raw) ? parseElevation(raw[0] ?? null) : parseElevation(raw);
-  cache.set(key, { value, expires: Date.now() + 60_000 });
+  setCacheEntry(key, value);
   return value;
 }
 
@@ -74,6 +83,6 @@ export async function elevationBatch(points: [number, number][]): Promise<(numbe
   for (let start = 0; start < points.length; start += BATCH_SIZE) {
     values.push(...await fetchElevationBatch(points.slice(start, start + BATCH_SIZE)));
   }
-  cache.set(key, { value: values, expires: Date.now() + 60_000 });
+  setCacheEntry(key, values);
   return values;
 }

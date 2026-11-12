@@ -3,6 +3,7 @@ import * as bridge from "../infrastructure/tauriBridge";
 import type { LocalSource } from "../infrastructure/tauriBridge";
 import { DEFAULT_SETTINGS } from "../features/settings/model/defaultSettings";
 import type { Measure, ProfilePoint, SelectedFeature, Tool } from "../features/map/model/mapTypes";
+import type { RouteMode, RoutePoint, RouteResult } from "../features/routing/routeService";
 
 export type { Measure, ProfilePoint, SelectedFeature, Tool } from "../features/map/model/mapTypes";
 export { DEFAULT_SETTINGS } from "../features/settings/model/defaultSettings";
@@ -30,6 +31,10 @@ interface State {
   pendingMarker: [number, number] | null;
   markerEditorOpen: boolean;
   selectedFeature: SelectedFeature | null;
+  routePoints: (RoutePoint | null)[];
+  routeMode: RouteMode;
+  routeResult: RouteResult | null;
+  routePickTarget: number | null;
 
   loadAll: () => Promise<void>;
   setSetting: (k: string, v: string) => Promise<void>;
@@ -38,13 +43,20 @@ interface State {
   setBasemap: (id: string) => void;
   toggleOverlay: (id: string) => void;
   hideLayer: (id: string, role: "basemap" | "overlay") => void;
+  hideLayers: (ids: string[]) => void;
   restoreLayer: (id: string, role: "basemap" | "overlay") => void;
+  unhideLayers: (ids: string[]) => void;
   reorderOverlays: (fromId: string, toId: string) => void;
   reorderLayerList: (kind: "overlay" | "basemap", fromId: string, toId: string) => void;
   setLayerOrder: (kind: "overlay" | "basemap", ids: string[]) => void;
   bumpFeatures: () => void;
   clearPersistenceError: () => void;
   setPendingMarker: (coordinates: [number, number] | null) => void;
+  setRoutePoint: (index: number, point: RoutePoint | null) => void;
+  addRouteWaypoint: () => void;
+  removeRoutePoint: (index: number) => void;
+  swapRoutePoints: () => void;
+  clearRoute: () => void;
 }
 
 export const useMapStore = create<State>((set, get) => ({
@@ -70,34 +82,26 @@ export const useMapStore = create<State>((set, get) => ({
   pendingMarker: null,
   markerEditorOpen: false,
   selectedFeature: null,
+  routePoints: [null, null],
+  routeMode: "auto",
+  routeResult: null,
+  routePickTarget: 0,
 
   loadAll: async () => {
     const [settings, sources] = await Promise.all([bridge.getSettings(), bridge.listSources()]);
     const merged = { ...DEFAULT_SETTINGS, ...settings };
-    let overlays: string[] = [];
-    let overlayOrder: string[] = [];
-    let basemapOrder: string[] = [];
-    let hiddenLayers: string[] = [];
-    try {
-      const parsed = JSON.parse(merged.overlays ?? "[]");
-      if (Array.isArray(parsed)) overlays = parsed.filter((id): id is string => typeof id === "string");
-    } catch {
-      overlays = [];
-    }
-    for (const [key, setter] of [["overlayOrder", (value: string[]) => { overlayOrder = value; }], ["basemapOrder", (value: string[]) => { basemapOrder = value; }]] as const) {
+    const parseIds = (raw: string | undefined): string[] => {
       try {
-        const parsed = JSON.parse(merged[key] ?? "[]");
-        if (Array.isArray(parsed)) setter(parsed.filter((id): id is string => typeof id === "string"));
+        const parsed: unknown = JSON.parse(raw ?? "[]");
+        return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
       } catch {
-        setter([]);
+        return [];
       }
-      try {
-        const parsed = JSON.parse(merged.hiddenLayers ?? "[]");
-        if (Array.isArray(parsed)) hiddenLayers = parsed.filter((id): id is string => typeof id === "string");
-      } catch {
-        hiddenLayers = [];
-      }
-    }
+    };
+    const overlays = parseIds(merged.overlays);
+    const overlayOrder = parseIds(merged.overlayOrder);
+    const basemapOrder = parseIds(merged.basemapOrder);
+    const hiddenLayers = parseIds(merged.hiddenLayers);
     const byBuiltin = new Map(sources.filter((source) => source.builtin_key).map((source) => [source.builtin_key!, `src:${source.id}`]));
     const byId = new Map(sources.map((source) => [`src:${source.id}`, source]));
     const normalizeId = (id: string) => {
@@ -119,18 +123,19 @@ export const useMapStore = create<State>((set, get) => ({
     });
   },
   setSetting: async (k, v) => {
+    set((state) => ({ settings: { ...state.settings, [k]: v }, persistenceError: null }));
     try {
       await bridge.setSetting(k, v);
-      set({ settings: { ...get().settings, [k]: v }, persistenceError: null });
     } catch (error) {
       console.error(`Asetuksen ${k} tallennus epäonnistui`, error);
       set({ persistenceError: "Asetusta ei voitu tallentaa." });
     }
   },
   setSettings: async (settings) => {
+    const next = { ...DEFAULT_SETTINGS, ...settings };
+    set({ settings: next, persistenceError: null });
     try {
-      await bridge.setSettings(settings);
-      set({ settings: { ...DEFAULT_SETTINGS, ...settings }, persistenceError: null });
+      await bridge.setSettings(next);
     } catch (error) {
       console.error("Asetusten tallennus epäonnistui", error);
       set({ persistenceError: "Asetuksia ei voitu tallentaa." });
@@ -162,9 +167,29 @@ export const useMapStore = create<State>((set, get) => ({
     const hiddenLayers = get().hiddenLayers.includes(id) ? get().hiddenLayers : [...get().hiddenLayers, id];
     const overlays = role === "overlay" ? get().overlays.filter((layer) => layer !== id) : get().overlays;
     const fallback = get().sources.find((source) => source.builtin_key === "osm");
-    set({ hiddenLayers, overlays, ...(role === "basemap" && get().basemap === id && fallback ? { basemap: `src:${fallback.id}` } : {}) });
+    const nextBasemap = role === "basemap" && get().basemap === id && fallback ? `src:${fallback.id}` : null;
+    set({ hiddenLayers, overlays, ...(nextBasemap ? { basemap: nextBasemap } : {}) });
     void get().setSetting("hiddenLayers", JSON.stringify(hiddenLayers));
     if (role === "overlay") void get().setSetting("overlays", JSON.stringify(overlays));
+    if (nextBasemap) void get().setSetting("basemap", nextBasemap);
+  },
+  hideLayers: (ids) => {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    const hiddenLayers = [...new Set([...get().hiddenLayers, ...ids])];
+    const overlays = get().overlays.filter((layer) => !idSet.has(layer));
+    const overlaysChanged = overlays.length !== get().overlays.length;
+    let nextBasemap: string | null = null;
+    if (idSet.has(get().basemap)) {
+      const fallback = get().sources.find((source) => source.builtin_key === "osm" && !idSet.has(`src:${source.id}`));
+      const anyVisibleBasemap = get().sources.find((source) => source.role === "basemap" && !hiddenLayers.includes(`src:${source.id}`));
+      const chosen = fallback ?? anyVisibleBasemap;
+      if (chosen) nextBasemap = `src:${chosen.id}`;
+    }
+    set({ hiddenLayers, overlays, ...(nextBasemap ? { basemap: nextBasemap } : {}) });
+    void get().setSetting("hiddenLayers", JSON.stringify(hiddenLayers));
+    if (overlaysChanged) void get().setSetting("overlays", JSON.stringify(overlays));
+    if (nextBasemap) void get().setSetting("basemap", nextBasemap);
   },
   restoreLayer: (id, role) => {
     const hiddenLayers = get().hiddenLayers.filter((layer) => layer !== id);
@@ -173,6 +198,13 @@ export const useMapStore = create<State>((set, get) => ({
     void get().setSetting("hiddenLayers", JSON.stringify(hiddenLayers));
     if (role === "overlay") void get().setSetting("overlays", JSON.stringify(overlays));
     if (role === "basemap") void get().setSetting("basemap", id);
+  },
+  unhideLayers: (ids) => {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    const hiddenLayers = get().hiddenLayers.filter((layer) => !idSet.has(layer));
+    set({ hiddenLayers });
+    void get().setSetting("hiddenLayers", JSON.stringify(hiddenLayers));
   },
   reorderOverlays: (fromId, toId) => {
     const current = [...get().overlays];
@@ -206,4 +238,38 @@ export const useMapStore = create<State>((set, get) => ({
   bumpFeatures: () => set({ featuresVersion: get().featuresVersion + 1 }),
   clearPersistenceError: () => set({ persistenceError: null }),
   setPendingMarker: (coordinates) => set({ pendingMarker: coordinates }),
+  setRoutePoint: (index, point) => {
+    const next = [...get().routePoints];
+    if (index >= 0 && index < next.length) {
+      next[index] = point;
+    }
+    const nextEmpty = next.findIndex((p) => p === null);
+    set({
+      routePoints: next,
+      routePickTarget: nextEmpty >= 0 ? nextEmpty : null,
+    });
+  },
+  addRouteWaypoint: () => {
+    const next = [...get().routePoints];
+    // Lisätään välietappi ennen määränpäätä (viimeistä pistettä)
+    const insertAt = Math.max(1, next.length - 1);
+    next.splice(insertAt, 0, null);
+    set({ routePoints: next, routePickTarget: insertAt });
+  },
+  removeRoutePoint: (index) => {
+    const current = get().routePoints;
+    if (current.length <= 2) {
+      const next = [...current];
+      next[index] = null;
+      set({ routePoints: next, routeResult: null, routePickTarget: index });
+      return;
+    }
+    const next = current.filter((_, i) => i !== index);
+    set({ routePoints: next, routePickTarget: null });
+  },
+  swapRoutePoints: () => {
+    const next = [...get().routePoints].reverse();
+    set({ routePoints: next });
+  },
+  clearRoute: () => set({ routePoints: [null, null], routeResult: null, routePickTarget: 0 }),
 }));

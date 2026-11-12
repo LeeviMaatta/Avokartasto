@@ -1,5 +1,8 @@
 export type Settings = Record<string, string>;
 
+export type UiStyle = "modern" | "classic" | "retro";
+export type CoordFormat = "decimal" | "dms";
+
 export type SettingKey =
   | "dataFetchMode"
   | "showWgs"
@@ -7,5 +10,24 @@ export type SettingKey =
   | "showElev"
   | "showWeather"
   | "theme"
+  | "uiStyle"
+  | "uiScale"
+  | "darkMapTiles"
+  | "showScaleLine"
+  | "showCompass"
+  | "showGraticule"
+  | "showFullscreenControl"
+  | "showOverviewMap"
+  | "showGeolocation"
+  | "showSegmentLengths"
+  | "kineticPanning"
+  | "areaUnit"
+  | "enableRotation"
+  | "enableDoubleClickZoom"
+  | "showSunTimes"
+  | "copyCoordsOnClick"
+  | "coordFormat"
   | "measurementUnits"
-  | "measurementType";
+  | "measurementType"
+  | "layerGroups"
+  | "layerGroupMap";

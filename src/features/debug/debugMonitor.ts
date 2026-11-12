@@ -4,6 +4,7 @@ import { useMapStore } from "../../store/mapStore";
 import { useDebugStore } from "./debugStore";
 
 let map: OlMap | null = null;
+let tileLoading = 0;
 let tileLoaded = 0;
 let tileFailed = 0;
 let networkActive = 0;
@@ -22,7 +23,12 @@ export function recordDebugEvent(source: string, message: string, severity: "inf
   useDebugStore.getState().record({ source, message, severity });
 }
 
+export function recordTileStart() {
+  tileLoading += 1;
+}
+
 export function recordTileEvent(success: boolean) {
+  tileLoading = Math.max(0, tileLoading - 1);
   if (success) tileLoaded += 1;
   else tileFailed += 1;
 }
@@ -62,8 +68,12 @@ export function refreshDebugSnapshot() {
   const center = view?.getCenter();
   const pointer = state.cursor;
   const layers = map?.getLayers().getArray() ?? [];
+  const baseCount = layers.filter((l) => l.get("karttasovellus-layer-type") === "basemap").length;
+  const overlayCount = layers.filter((l) => l.get("karttasovellus-layer-type") === "overlay").length;
+  const vectorCount = layers.filter((l) => !l.get("karttasovellus-layer-type")).length;
   const totalTiles = tileLoaded + tileFailed;
   const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+
   useDebugStore.getState().refresh({
     "map.zoom": view?.getZoom()?.toFixed(2) ?? null,
     "map.resolution": view?.getResolution()?.toFixed(2) ?? null,
@@ -73,15 +83,17 @@ export function refreshDebugSnapshot() {
     "coordinates.centerWgs84": center ? toLonLat(center).map((value) => value.toFixed(5)).join(", ") : null,
     "coordinates.pointerWgs84": pointer ? pointer.map((value) => value.toFixed(5)).join(", ") : null,
     "coordinates.projection": view?.getProjection().getCode() ?? "Unavailable",
-    "layers.total": layers.length,
-    "layers.visible": layers.filter((layer) => layer.getVisible()).length,
-    "layers.base": state.basemap || "Unavailable",
+    "layers.total": `${layers.length} (${baseCount} pohja, ${overlayCount} päällys, ${vectorCount} piirto)`,
+    "layers.visible": `${layers.filter((layer) => layer.getVisible()).length} näkyvissä`,
+    "layers.base": state.basemap || "Ei valittu",
+    "layers.overlays": state.overlays.length > 0 ? `${state.overlays.length} valittuna` : "Ei valittu",
     "tiles.loaded": tileLoaded,
+    "tiles.loading": tileLoading,
     "tiles.failed": tileFailed,
-    "tiles.successRate": totalTiles ? `${Math.round((tileLoaded / totalTiles) * 100)}%` : "Unavailable",
-    "network.active": networkActive,
-    "network.completed": networkCompleted,
-    "network.failed": networkFailed,
+    "tiles.successRate": totalTiles ? `${Math.round((tileLoaded / totalTiles) * 100)}%` : "–",
+    "network.active": networkActive + tileLoading,
+    "network.completed": networkCompleted + tileLoaded,
+    "network.failed": networkFailed + tileFailed,
     "performance.fps": fps ? fps.toFixed(1) : "Unavailable",
     "performance.frameTime": frameTime ? `${frameTime.toFixed(1)} ms` : "Unavailable",
     "application.environment": (import.meta as ImportMeta & { env?: { MODE?: string } }).env?.MODE ?? "unknown",

@@ -1,4 +1,4 @@
-export type Tool = "none" | "measure" | "marker";
+export type Tool = "none" | "measure" | "marker" | "route";
 
 export interface ProfilePoint {
   dist: number;

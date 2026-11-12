@@ -41,7 +41,22 @@ export default function FeatureContextMenu({ value, opacity, measureSource, prof
             const kind = geometry instanceof Polygon ? "area" : "distance";
             const length = kind === "area" ? getArea(geometry, { projection: "EPSG:3857" }) : geometry instanceof LineString ? getLength(geometry, { projection: "EPSG:3857" }) : 0;
             const geojson = new GeoJSON().writeGeometry(geometry, { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" });
-            useMapStore.setState({ tool: "measure", editingFeatureId: value.savedId, measure: { length, geojson, kind }, profile: null, profileVisible: false, profileError: null });
+            useMapStore.setState({
+              tool: "measure",
+              editingFeatureId: value.savedId,
+              measure: { length, geojson, kind },
+              profile: null,
+              profileVisible: false,
+              profileError: null,
+              selectedFeature: {
+                id: value.savedId,
+                kind: "measurement",
+                title: String(value.feature.get("title") || "Mittaus"),
+                description: value.feature.get("description") ?? null,
+                color: value.feature.get("color") || "#dc2626",
+                folder_id: value.feature.get("folder_id") ?? null,
+              },
+            });
           } else {
             useMapStore.setState({ tool: "measure" });
           }
@@ -58,7 +73,7 @@ export default function FeatureContextMenu({ value, opacity, measureSource, prof
             if (value.savedId) void deleteFeature(value.savedId).then(() => useMapStore.getState().bumpFeatures());
             else measureSource.removeFeature(value.feature);
             profileRequest.current += 1;
-            useMapStore.setState({ measure: null, profile: null, profileVisible: false, profileError: null });
+            useMapStore.setState({ measure: null, profile: null, profileVisible: false, profileError: null, editingFeatureId: null, selectedFeature: null });
             onClose();
           }}
         >

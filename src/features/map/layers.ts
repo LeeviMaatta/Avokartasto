@@ -15,13 +15,14 @@ const applyLayerViewSettings = (layer: BaseLayer, source: LocalSource): BaseLaye
   if (!projection) return layer;
   const tileGrid = tileSource.getTileGridForProjection(projection);
   const maxZoom = tileGrid?.getResolutions().length ? tileGrid.getResolutions().length - 1 : source.max_zoom;
-  const effectiveOffset = source.view_zoom_offset - Math.log2(source.view_magnification);
+  const magnification = source.view_magnification > 0 ? source.view_magnification : 1;
+  const effectiveOffset = (source.view_zoom_offset || 0) - Math.log2(magnification);
   const initialResolution = 156543.03392804097;
   const resolutions = Array.from({ length: maxZoom + 1 }, (_, z) => initialResolution / (2 ** (z + effectiveOffset)));
   tileSource.setTileGridForProjection(projection, new TileGrid({
     origin: [-20037508.342789244, 20037508.342789244],
     resolutions,
-    tileSize: source.tile_size,
+    tileSize: source.tile_size || 256,
   }));
   return layer;
 };

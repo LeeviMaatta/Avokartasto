@@ -1,7 +1,158 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 html, body, #root { height: 100%; margin: 0; }
-body { font-family: system-ui, "Segoe UI", sans-serif; }
+body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+/* OpenLayers controls default styling */
 .ol-zoom { top: auto; bottom: 8.5rem; left: auto; right: .75rem; }
 .ol-control button { background: rgb(255 255 255 / 0.95); color: #1f2937; }
 .dark .ol-control button { background: rgb(9 9 11 / 0.95); color: white; }
+
+/* ScaleLine styling */
+.ol-scale-line {
+  bottom: 0.75rem;
+  left: auto;
+  right: 0.75rem;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 6px;
+  padding: 3px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.dark .ol-scale-line {
+  background: rgba(9, 9, 11, 0.9);
+  color: #f3f4f6;
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.ol-scale-line-inner {
+  border: 1px solid #374151;
+  border-top: none;
+  color: #1f2937;
+  font-family: monospace;
+  font-size: 10px;
+  font-weight: 500;
+}
+.dark .ol-scale-line-inner {
+  border-color: #e5e7eb;
+  color: #f3f4f6;
+}
+
+/* Hide zoom controls if setting is disabled */
+[data-hide-zoom="true"] .ol-zoom {
+  display: none !important;
+}
+
+/* OpenLayers extra controls styling */
+.ol-rotate {
+  top: 1rem;
+  right: 1rem;
+  transition: opacity 0.2s;
+}
+.ol-full-screen {
+  top: 3.5rem;
+  right: 1rem;
+}
+.ol-overviewmap {
+  bottom: 2.5rem;
+  right: 0.75rem;
+  left: auto;
+}
+.ol-overviewmap .ol-overviewmap-map {
+  width: 160px;
+  height: 120px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+.dark .ol-overviewmap .ol-overviewmap-map {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Night-mode filter for raster base map tiles */
+html[data-dark-map-tiles="true"] .ol-layer:not(.ol-vector-layer) canvas {
+  filter: invert(90%) hue-rotate(180deg) brightness(85%) contrast(90%);
+}
+
+/* ========================================================
+   UI STYLES: Modern (default), Classic (older), Retro (very old)
+   ======================================================== */
+
+/* Retro UI Style (90s / Win95 classic desktop look) */
+[data-ui-style="retro"] {
+  font-family: "MS Sans Serif", Tahoma, Geneva, "Segoe UI", sans-serif;
+  letter-spacing: -0.01em;
+}
+
+[data-ui-style="retro"] * {
+  border-radius: 0px !important;
+}
+
+[data-ui-style="retro"] .rounded,
+[data-ui-style="retro"] .rounded-lg,
+[data-ui-style="retro"] .rounded-xl,
+[data-ui-style="retro"] .rounded-2xl {
+  border-radius: 0px !important;
+}
+
+/* Retro panels and modals */
+[data-ui-style="retro"]:not(.dark) .bg-white\/95,
+[data-ui-style="retro"]:not(.dark) .bg-white {
+  background-color: #d4d0c8 !important;
+  color: #000000 !important;
+  box-shadow: inset 1px 1px 0px #ffffff, inset -1px -1px 0px #808080, 2px 2px 0px #000000 !important;
+  border: 1px solid #404040 !important;
+}
+
+[data-ui-style="retro"].dark .dark\:bg-zinc-950\/95,
+[data-ui-style="retro"].dark .dark\:bg-zinc-950,
+[data-ui-style="retro"].dark .dark\:bg-gray-800\/95 {
+  background-color: #2b2b2b !important;
+  color: #f0f0f0 !important;
+  box-shadow: inset 1px 1px 0px #555555, inset -1px -1px 0px #111111, 2px 2px 0px #000000 !important;
+  border: 1px solid #666666 !important;
+}
+
+/* Retro buttons */
+[data-ui-style="retro"] button:not(.bg-blue-600):not(.bg-red-600) {
+  border-top: 2px solid #ffffff !important;
+  border-left: 2px solid #ffffff !important;
+  border-right: 2px solid #808080 !important;
+  border-bottom: 2px solid #808080 !important;
+}
+
+[data-ui-style="retro"].dark button:not(.bg-blue-600):not(.bg-red-600) {
+  border-top: 2px solid #555555 !important;
+  border-left: 2px solid #555555 !important;
+  border-right: 2px solid #111111 !important;
+  border-bottom: 2px solid #111111 !important;
+}
+
+[data-ui-style="retro"] button:active {
+  border-top: 2px solid #808080 !important;
+  border-left: 2px solid #808080 !important;
+  border-right: 2px solid #ffffff !important;
+  border-bottom: 2px solid #ffffff !important;
+}
+
+/* Retro inputs & selects */
+[data-ui-style="retro"]:not(.dark) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+[data-ui-style="retro"]:not(.dark) select {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border-top: 2px solid #808080 !important;
+  border-left: 2px solid #808080 !important;
+  border-right: 2px solid #ffffff !important;
+  border-bottom: 2px solid #ffffff !important;
+}
+
+/* Classic UI Style (compact, older desktop style, subtle borders, 4px corners) */
+[data-ui-style="classic"] .rounded-xl,
+[data-ui-style="classic"] .rounded-2xl {
+  border-radius: 4px !important;
+}
+
+[data-ui-style="classic"] .rounded-lg {
+  border-radius: 3px !important;
+}

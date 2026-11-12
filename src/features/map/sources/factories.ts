@@ -32,20 +32,35 @@ const rasterUrl = (source: MapSource, settings: Record<string, string>) => {
   return auth && source.id > 0 ? remoteTileUrl(source.id) : remoteUrl(source, settings);
 };
 
-const xyz: SourceFactory = (source, settings) => new TileLayer({
-  source: new XYZ({
-    url: rasterUrl(source, settings),
-    attributions: source.attribution || source.name,
-    maxZoom: source.max_zoom,
-    minZoom: source.min_zoom,
-    tileSize: source.tile_size,
-    crossOrigin: "anonymous",
-  }),
-});
+const cacheSizeOf = (settings: Record<string, string>) =>
+  settings.tileCache === "0" ? 0 : undefined;
+
+const xyz: SourceFactory = (source, settings) => {
+  const isOwm = Boolean(
+    (source.builtin_key && source.builtin_key.startsWith("owm-")) ||
+    (source.url && source.url.includes("openweathermap.org"))
+  );
+  return new TileLayer({
+    preload: isOwm ? 0 : 1,
+    useInterimTilesOnError: true,
+    source: new XYZ({
+      url: rasterUrl(source, settings),
+      attributions: source.attribution || source.name,
+      maxZoom: isOwm ? Math.min(source.max_zoom, 11) : source.max_zoom,
+      minZoom: source.min_zoom,
+      tileSize: source.tile_size,
+      cacheSize: cacheSizeOf(settings),
+      transition: 0,
+      crossOrigin: "anonymous",
+    }),
+  });
+};
 
 const wms: SourceFactory = (source, settings) => {
   const params = paramsOf(source);
   return new TileLayer({
+    preload: 1,
+    useInterimTilesOnError: true,
     source: new TileWMS({
       url: remoteUrl(source, settings),
       params: {
@@ -57,6 +72,8 @@ const wms: SourceFactory = (source, settings) => {
         TRANSPARENT: params.transparent ?? true,
       },
       attributions: source.attribution || source.name,
+      cacheSize: cacheSizeOf(settings),
+      transition: 0,
       crossOrigin: "anonymous",
     }),
   });
@@ -64,22 +81,34 @@ const wms: SourceFactory = (source, settings) => {
 
 const wmts: SourceFactory = (source, settings) => xyz(source, settings);
 
-const localTile: SourceFactory = (source) => new TileLayer({
+const localTile: SourceFactory = (source, settings) => new TileLayer({
+  preload: 1,
+  useInterimTilesOnError: true,
   source: new XYZ({
     url: tileUrl(source.id),
     attributions: source.attribution || source.name,
     maxZoom: source.max_zoom,
     minZoom: source.min_zoom,
     tileSize: source.tile_size,
+    cacheSize: cacheSizeOf(settings),
+    transition: 0,
     crossOrigin: "anonymous",
   }),
 });
 
 const vectorTile: SourceFactory = (source, settings) => new VectorTileLayer({
-  source: new VectorTileSource({ format: new MVT(), url: remoteUrl(source, settings) }),
+  updateWhileAnimating: false,
+  updateWhileInteracting: false,
+  source: new VectorTileSource({
+    format: new MVT(),
+    url: remoteUrl(source, settings),
+    cacheSize: cacheSizeOf(settings),
+  }),
 });
 
 const wfs: SourceFactory = (source, settings) => new VectorLayer({
+  updateWhileAnimating: false,
+  updateWhileInteracting: false,
   source: new VectorSource({
     format: new GeoJSON(),
     url: remoteUrl(source, settings),

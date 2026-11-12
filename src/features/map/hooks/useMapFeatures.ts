@@ -8,20 +8,31 @@ interface MapFeaturesOptions {
   featuresVersion: number;
   markerFolders: string;
   hiddenFeatures: string;
+  editingFeatureId?: number | null;
 }
 
-export function useMapFeatures({ featureSource, featuresVersion, markerFolders, hiddenFeatures }: MapFeaturesOptions) {
+export function useMapFeatures({ featureSource, featuresVersion, markerFolders, hiddenFeatures, editingFeatureId }: MapFeaturesOptions) {
   useEffect(() => {
+    let cancelled = false;
     void listFeatures().then((rows) => {
+      if (cancelled) return;
       featureSource.current.clear();
       const format = new GeoJSON();
-      let visibleFolders = new Set<string>();
+      const knownFolders = new Set<string>();
+      const visibleFolders = new Set<string>();
       let hiddenFeatureIds = new Set<number>();
       try {
         const folders = JSON.parse(markerFolders) as Array<{ id?: string; visible?: boolean }>;
-        visibleFolders = new Set(folders.filter((folder) => folder.visible !== false && typeof folder.id === "string").map((folder) => folder.id!));
+        if (Array.isArray(folders)) {
+          folders.forEach((folder) => {
+            if (typeof folder?.id === "string") {
+              knownFolders.add(folder.id);
+              if (folder.visible !== false) visibleFolders.add(folder.id);
+            }
+          });
+        }
       } catch {
-        visibleFolders = new Set();
+        // Sivuutetaan virheellinen JSON
       }
       try {
         const ids = JSON.parse(hiddenFeatures);
@@ -30,9 +41,8 @@ export function useMapFeatures({ featureSource, featuresVersion, markerFolders, 
         hiddenFeatureIds = new Set();
       }
       rows.forEach((row) => {
-        if (hiddenFeatureIds.has(row.id)) return;
-        if (row.folder_id && visibleFolders.size > 0 && !visibleFolders.has(row.folder_id)) return;
-        if (row.folder_id && visibleFolders.size === 0) return;
+        if (hiddenFeatureIds.has(row.id) || row.id === editingFeatureId) return;
+        if (row.folder_id && knownFolders.has(row.folder_id) && !visibleFolders.has(row.folder_id)) return;
         try {
           featureSource.current.addFeatures(format.readFeatures({
             type: "Feature",
@@ -44,5 +54,8 @@ export function useMapFeatures({ featureSource, featuresVersion, markerFolders, 
         }
       });
     }).catch((error) => console.error("Tallennettujen kohteiden lataus epäonnistui", error));
-  }, [featureSource, featuresVersion, markerFolders, hiddenFeatures]);
+    return () => {
+      cancelled = true;
+    };
+  }, [featureSource, featuresVersion, markerFolders, hiddenFeatures, editingFeatureId]);
 }

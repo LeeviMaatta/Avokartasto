@@ -4,17 +4,108 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::{Component, Path},
-    sync::{Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant},
 };
 use tauri::{http::Response, AppHandle, Manager, State};
 
 pub struct Db(pub Mutex<Connection>);
 
+#[derive(Clone)]
+struct TileSourceMeta {
+    base_path: String,
+    pattern: String,
+    url: String,
+    auth: String,
+}
+
 type CachedTile = (Instant, Vec<u8>);
-static LANTMATERIET_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
-static LANTMATERIET_ASYNC_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-static LANTMATERIET_CACHE: OnceLock<Mutex<HashMap<String, CachedTile>>> = OnceLock::new();
+static REMOTE_TILE_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+static REMOTE_TILE_CACHE: OnceLock<Mutex<HashMap<String, CachedTile>>> = OnceLock::new();
+static MBTILES_CACHE: OnceLock<Mutex<HashMap<String, Arc<Mutex<Connection>>>>> = OnceLock::new();
+static SECRET_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+static SOURCE_META_CACHE: OnceLock<Mutex<HashMap<i64, TileSourceMeta>>> = OnceLock::new();
+static TILE_CACHE_ENABLED: OnceLock<Mutex<Option<bool>>> = OnceLock::new();
+
+fn invalidate_source_meta_cache() {
+    if let Some(cache) = SOURCE_META_CACHE.get() {
+        if let Ok(mut map) = cache.lock() {
+            map.clear();
+        }
+    }
+}
+
+fn invalidate_tile_cache_setting() {
+    if let Some(flag) = TILE_CACHE_ENABLED.get() {
+        if let Ok(mut val) = flag.lock() {
+            *val = None;
+        }
+    }
+}
+
+fn get_source_meta(app: &AppHandle, id: i64) -> Res<TileSourceMeta> {
+    let cache = SOURCE_META_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(map) = cache.lock() {
+        if let Some(meta) = map.get(&id) {
+            return Ok(meta.clone());
+        }
+    }
+    let db = app.try_state::<Db>().ok_or("tietokanta ei valmis")?;
+    let meta = {
+        let c = db.0.lock().map_err(e)?;
+        c.query_row(
+            "SELECT COALESCE(base_path,''), COALESCE(pattern,''), COALESCE(url,''), COALESCE(auth,'') FROM local_sources WHERE id = ?1",
+            [id],
+            |r| {
+                Ok(TileSourceMeta {
+                    base_path: r.get(0)?,
+                    pattern: r.get(1)?,
+                    url: r.get(2)?,
+                    auth: r.get(3)?,
+                })
+            },
+        )
+        .map_err(e)?
+    };
+    if let Ok(mut map) = cache.lock() {
+        map.insert(id, meta.clone());
+    }
+    Ok(meta)
+}
+
+fn is_tile_cache_enabled(app: &AppHandle) -> bool {
+    let cache = TILE_CACHE_ENABLED.get_or_init(|| Mutex::new(None));
+    if let Ok(guard) = cache.lock() {
+        if let Some(enabled) = *guard {
+            return enabled;
+        }
+    }
+    let enabled = app
+        .try_state::<Db>()
+        .and_then(|db| {
+            let c = db.0.lock().ok()?;
+            let val: Option<String> = c
+                .query_row("SELECT value FROM settings WHERE key='tileCache'", [], |r| r.get(0))
+                .optional()
+                .ok()?;
+            Some(val.as_deref() != Some("0"))
+        })
+        .unwrap_or(true);
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some(enabled);
+    }
+    enabled
+}
+
+fn remote_tile_client() -> &'static reqwest::blocking::Client {
+    REMOTE_TILE_CLIENT.get_or_init(|| {
+        reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .user_agent("Karttasovellus/0.1")
+            .build()
+            .unwrap_or_else(|_| reqwest::blocking::Client::new())
+    })
+}
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -79,22 +170,42 @@ fn keyring_entry(key: &str) -> Res<Entry> {
 
 fn set_secret(key: &str, value: &str) -> Res<()> {
     let entry = keyring_entry(key)?;
-    if value.is_empty() {
+    let res = if value.is_empty() {
         match entry.delete_credential() {
             Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
             Err(error) => Err(error.to_string()),
         }
     } else {
         entry.set_password(value).map_err(e)
+    };
+    if res.is_ok() {
+        let cache = SECRET_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        if let Ok(mut map) = cache.lock() {
+            map.insert(
+                key.to_string(),
+                if value.is_empty() { None } else { Some(value.to_string()) },
+            );
+        }
     }
+    res
 }
 
 fn get_secret(key: &str) -> Res<Option<String>> {
-    match keyring_entry(key)?.get_password() {
+    let cache = SECRET_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(map) = cache.lock() {
+        if let Some(cached) = map.get(key) {
+            return Ok(cached.clone());
+        }
+    }
+    let fetched = match keyring_entry(key)?.get_password() {
         Ok(value) => Ok(Some(value)),
         Err(KeyringError::NoEntry) => Ok(None),
         Err(error) => Err(error.to_string()),
+    }?;
+    if let Ok(mut map) = cache.lock() {
+        map.insert(key.to_string(), fetched.clone());
     }
+    Ok(fetched)
 }
 
 fn validate_setting(key: &str, value: &str) -> Res<()> {
@@ -227,52 +338,76 @@ fn ensure_user_feature_column(conn: &Connection, name: &str, definition: &str) -
         )
         .map_err(e)?;
     }
+    Ok(())
+}
 
-    fn seed_default_sources(conn: &Connection) -> Res<()> {
-        let manifest = include_str!("../resources/default_maps.json");
-        let defaults: Vec<serde_json::Value> = serde_json::from_str(manifest).map_err(e)?;
-        for source in defaults {
-            let builtin_key = source
-                .get("builtin_key")
-                .and_then(serde_json::Value::as_str)
-                .ok_or("Oletuslähteeltä puuttuu builtin_key")?;
-            let exists: bool = conn
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM local_sources WHERE builtin_key=?1)",
-                    [builtin_key],
-                    |row| row.get(0),
-                )
-                .map_err(e)?;
-            if exists {
-                continue;
-            }
-            let api_type = source.get("api_type").and_then(serde_json::Value::as_str).unwrap_or("xyz");
-            conn.execute(
-                "INSERT INTO local_sources
-                 (name,base_path,pattern,projection,role,opacity,max_zoom,attribution,api_type,
-                  tile_size,layer_name,style,builtin_key,is_default,factory_json,kind,url,params,auth,note)
-                 VALUES (?1,'','{z}/{x}/{y}.png','EPSG:3857',?2,?3,?4,?5,?6,256,'','',?7,1,?8,?9,?10,?11,?12,?13)",
-                params![
-                    source.get("name").and_then(serde_json::Value::as_str).unwrap_or("Karttataso"),
-                    source.get("role").and_then(serde_json::Value::as_str).unwrap_or("overlay"),
-                    source.get("opacity").and_then(serde_json::Value::as_f64).unwrap_or(1.0),
-                    source.get("max_zoom").and_then(serde_json::Value::as_i64).unwrap_or(19),
-                    source.get("attribution").and_then(serde_json::Value::as_str).unwrap_or(""),
-                    api_type,
-                    builtin_key,
-                    source.to_string(),
-                    source_kind(api_type),
-                    source.get("url").and_then(serde_json::Value::as_str).unwrap_or(""),
-                    source.get("params").map(ToString::to_string).unwrap_or_else(|| "{}".into()),
-                    source.get("auth").and_then(serde_json::Value::as_str).unwrap_or(""),
-                    source.get("note").and_then(serde_json::Value::as_str).unwrap_or("")
-                ],
+fn seed_default_sources(conn: &Connection) -> Res<()> {
+    conn.execute(
+        "UPDATE settings SET value = (SELECT 'src:' || id FROM local_sources WHERE builtin_key = 'osm' LIMIT 1)
+         WHERE key = 'basemap' AND value IN (
+             SELECT 'src:' || id FROM local_sources WHERE builtin_key IN ('carto-light', 'carto-dark', 'carto-voyager')
+         )",
+        [],
+    )
+    .ok();
+
+    conn.execute(
+        "DELETE FROM local_sources WHERE builtin_key IN (
+            'carto-light', 'carto-dark', 'carto-voyager',
+            'mml-kuntarajat', 'mml-paikannimet', 'mml-hydrografia',
+            'mml-rinnevarjoste', 'mml-korkeusvyohykkeet', 'mml-orto-infra'
+        )",
+        [],
+    )
+    .map_err(e)?;
+
+    conn.execute(
+        "UPDATE local_sources SET max_zoom = 11 WHERE builtin_key LIKE 'owm-%' AND max_zoom > 11",
+        [],
+    )
+    .ok();
+
+    let manifest = include_str!("../resources/default_maps.json");
+    let defaults: Vec<serde_json::Value> = serde_json::from_str(manifest).map_err(e)?;
+    for source in defaults {
+        let builtin_key = source
+            .get("builtin_key")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("Oletuslähteeltä puuttuu builtin_key")?;
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM local_sources WHERE builtin_key=?1)",
+                [builtin_key],
+                |row| row.get(0),
             )
             .map_err(e)?;
+        if exists {
+            continue;
         }
-        Ok(())
+        let api_type = source.get("api_type").and_then(serde_json::Value::as_str).unwrap_or("xyz");
+        conn.execute(
+            "INSERT INTO local_sources
+             (name,base_path,pattern,projection,role,opacity,max_zoom,attribution,api_type,
+              tile_size,layer_name,style,builtin_key,is_default,factory_json,kind,url,params,auth,note)
+             VALUES (?1,'','{z}/{x}/{y}.png','EPSG:3857',?2,?3,?4,?5,?6,256,'','',?7,1,?8,?9,?10,?11,?12,?13)",
+            params![
+                source.get("name").and_then(serde_json::Value::as_str).unwrap_or("Karttataso"),
+                source.get("role").and_then(serde_json::Value::as_str).unwrap_or("overlay"),
+                source.get("opacity").and_then(serde_json::Value::as_f64).unwrap_or(1.0),
+                source.get("max_zoom").and_then(serde_json::Value::as_i64).unwrap_or(19),
+                source.get("attribution").and_then(serde_json::Value::as_str).unwrap_or(""),
+                api_type,
+                builtin_key,
+                source.to_string(),
+                source_kind(api_type),
+                source.get("url").and_then(serde_json::Value::as_str).unwrap_or(""),
+                source.get("params").map(|v| v.as_str().map(String::from).unwrap_or_else(|| v.to_string())).unwrap_or_else(|| "{}".into()),
+                source.get("auth").and_then(serde_json::Value::as_str).unwrap_or(""),
+                source.get("note").and_then(serde_json::Value::as_str).unwrap_or("")
+            ],
+        )
+        .map_err(e)?;
     }
-    seed_default_sources(conn)?;
     Ok(())
 }
 
@@ -380,6 +515,10 @@ fn set_setting(db: State<Db>, key: String, value: String) -> Res<()> {
         params![key, value],
     )
     .map_err(e)?;
+    drop(c);
+    if key == "tileCache" {
+        invalidate_tile_cache_setting();
+    }
     Ok(())
 }
 
@@ -408,6 +547,7 @@ fn set_settings(db: State<Db>, settings: HashMap<String, String>) -> Res<()> {
     }
     tx.commit().map_err(e)?;
     drop(c);
+    invalidate_tile_cache_setting();
     for (key, value) in secrets {
         set_secret(&key, &value)?;
     }
@@ -488,7 +628,10 @@ fn add_source(
         params![name, base_path, pattern, role, opacity, max_zoom, attribution, api_type, tile_size, layer_name, style],
     )
     .map_err(e)?;
-    Ok(c.last_insert_rowid())
+    let rowid = c.last_insert_rowid();
+    drop(c);
+    invalidate_source_meta_cache();
+    Ok(rowid)
 }
 
 #[tauri::command]
@@ -508,6 +651,8 @@ fn delete_source(db: State<Db>, id: i64) -> Res<()> {
     }
     c.execute("DELETE FROM local_sources WHERE id = ?1", params![id])
         .map_err(e)?;
+    drop(c);
+    invalidate_source_meta_cache();
     Ok(())
 }
 
@@ -539,7 +684,10 @@ fn add_source_config(db: State<Db>, source: SourceInput) -> Res<i64> {
         ],
     )
     .map_err(e)?;
-    Ok(c.last_insert_rowid())
+    let rowid = c.last_insert_rowid();
+    drop(c);
+    invalidate_source_meta_cache();
+    Ok(rowid)
 }
 
 #[tauri::command]
@@ -569,6 +717,8 @@ fn update_source_config(db: State<Db>, id: i64, source: SourceInput) -> Res<()> 
         ],
     )
     .map_err(e)?;
+    drop(c);
+    invalidate_source_meta_cache();
     Ok(())
 }
 
@@ -580,18 +730,25 @@ fn reset_source_to_default(db: State<Db>, id: i64) -> Res<()> {
         .map_err(e)?;
     let value: serde_json::Value = serde_json::from_str(&factory).map_err(e)?;
     let text = |key: &str| value.get(key).and_then(serde_json::Value::as_str).unwrap_or("");
+    let params_str = value
+        .get("params")
+        .map(|v| v.as_str().map(String::from).unwrap_or_else(|| v.to_string()))
+        .unwrap_or_else(|| "{}".into());
     c.execute(
         "UPDATE local_sources SET name=?1,role=?2,api_type=?3,url=?4,attribution=?5,
          max_zoom=?6,opacity=?7,params=?8,auth=?9,note=?10,kind=?11,
-         base_path=COALESCE(base_path,''),pattern=COALESCE(pattern,'') WHERE id=?12",
+         base_path='',pattern='{z}/{x}/{y}.png',min_zoom=0,tile_size=256,
+         layer_name='',style='',view_zoom_offset=0,view_magnification=1 WHERE id=?12",
         params![
             text("name"), text("role"), text("api_type"), text("url"), text("attribution"),
             value.get("max_zoom").and_then(serde_json::Value::as_i64).unwrap_or(19),
             value.get("opacity").and_then(serde_json::Value::as_f64).unwrap_or(1.0),
-            text("params"), text("auth"), text("note"), source_kind(text("api_type")), id
+            params_str, text("auth"), text("note"), source_kind(text("api_type")), id
         ],
     )
     .map_err(e)?;
+    drop(c);
+    invalidate_source_meta_cache();
     Ok(())
 }
 
@@ -637,109 +794,9 @@ fn update_source(
         ],
     )
     .map_err(e)?;
+    drop(c);
+    invalidate_source_meta_cache();
     Ok(())
-}
-
-#[tauri::command]
-async fn fetch_lantmateriet_tile(_db: State<'_, Db>, z: u32, x: u32, y: i32) -> Res<Vec<u8>> {
-    if y < 0 {
-        return Err("laatan y-koordinaatti ei voi olla negatiivinen".into());
-    }
-
-    async fn fetch_remote_tile_impl(
-        db: State<'_, Db>,
-        source_id: i64,
-        z: u32,
-        x: u32,
-        y: i32,
-    ) -> Res<Vec<u8>> {
-        if y < 0 {
-            return Err("laatan y-koordinaatti ei voi olla negatiivinen".into());
-        }
-        validate_tile_coordinates(z, x, y as u32)?;
-        let (template, auth): (String, String) = {
-            let c = db.0.lock().map_err(e)?;
-            c.query_row(
-                "SELECT COALESCE(url,''), COALESCE(auth,'') FROM local_sources WHERE id=?1",
-                [source_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(e)?
-        };
-        if template.is_empty() {
-            return Err("Karttalähteen URL puuttuu".into());
-        }
-        let mut url = template
-            .replace("{z}", &z.to_string())
-            .replace("{x}", &x.to_string())
-            .replace("{y}", &y.to_string());
-        if url.contains("{secret:") {
-            for key in SECRET_KEYS {
-                let token = format!("{{secret:{key}}}");
-                if url.contains(&token) {
-                    url = url.replace(&token, &get_secret(key)?.unwrap_or_default());
-                }
-            }
-        }
-        let client = LANTMATERIET_ASYNC_CLIENT.get_or_init(reqwest::Client::new);
-        let request = client.get(&url);
-        let request = if let Ok(value) = serde_json::from_str::<serde_json::Value>(&auth) {
-            let username_key = value.get("username").and_then(serde_json::Value::as_str);
-            let password_key = value.get("password").and_then(serde_json::Value::as_str);
-            match (username_key, password_key) {
-                (Some(username_key), Some(password_key)) => request.basic_auth(
-                    get_secret(username_key)?.unwrap_or_default(),
-                    Some(get_secret(password_key)?.unwrap_or_default()),
-                ),
-                _ => request,
-            }
-        } else {
-            request
-        };
-        let response = request.send().await.map_err(e)?;
-        if !response.status().is_success() {
-            return Err(format!("Etäpalvelin palautti HTTP {}", response.status()));
-        }
-        response.bytes().await.map(|bytes| bytes.to_vec()).map_err(e)
-    }
-    validate_tile_coordinates(z, x, y as u32)?;
-    let username = get_secret("lantmaterietUsername")?.unwrap_or_default();
-    let password = get_secret("lantmaterietPassword")?.unwrap_or_default();
-    if username.is_empty() || password.is_empty() {
-        return Err("Lantmäteriet-tunnukset puuttuvat".into());
-    }
-
-    let url = format!(
-        "https://maps.lantmateriet.se/open/topowebb-ccby/v1/wmts/1.0.0/topowebb/default/3857/{z}/{y}/{x}.png"
-    );
-    let cache = LANTMATERIET_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Ok(mut entries) = cache.lock() {
-        if let Some((created, bytes)) = entries.get(&url) {
-            if created.elapsed() < Duration::from_secs(300) {
-                return Ok(bytes.clone());
-            }
-        }
-        entries.retain(|_, (created, _)| created.elapsed() < Duration::from_secs(600));
-    }
-
-    let client = LANTMATERIET_ASYNC_CLIENT.get_or_init(reqwest::Client::new);
-    let response = client
-        .get(&url)
-        .basic_auth(username, Some(password))
-        .send()
-        .await
-        .map_err(e)?;
-    if !response.status().is_success() {
-        return Err(format!("Lantmäteriet palautti HTTP {}", response.status()));
-    }
-    let bytes = response.bytes().await.map_err(e)?.to_vec();
-    if let Ok(mut entries) = cache.lock() {
-        if entries.len() >= 512 {
-            entries.clear();
-        }
-        entries.insert(url, (Instant::now(), bytes.clone()));
-    }
-    Ok(bytes)
 }
 
 fn read_remote_tile(app: &AppHandle, path: &str) -> Res<(Vec<u8>, &'static str)> {
@@ -752,23 +809,49 @@ fn read_remote_tile(app: &AppHandle, path: &str) -> Res<(Vec<u8>, &'static str)>
     let x: u32 = parts[2].parse().map_err(e)?;
     let y: u32 = parts[3].split('.').next().unwrap_or("").parse().map_err(e)?;
     validate_tile_coordinates(z, x, y)?;
-    let db = app.try_state::<Db>().ok_or("tietokanta ei valmis")?;
-    let (template, auth): (String, String) = {
-        let c = db.0.lock().map_err(e)?;
-        c.query_row("SELECT COALESCE(url,''), COALESCE(auth,'') FROM local_sources WHERE id=?1", [source_id], |row| Ok((row.get(0)?, row.get(1)?))).map_err(e)?
-    };
-    let mut url = template.replace("{z}", &z.to_string()).replace("{x}", &x.to_string()).replace("{y}", &y.to_string());
+    let meta = get_source_meta(app, source_id)?;
+    let cache_enabled = is_tile_cache_enabled(app);
+    let template = meta.url;
+    let auth = meta.auth;
+    if template.is_empty() {
+        return Err("Karttalähteen URL puuttuu".into());
+    }
+    let mut url = template
+        .replace("{z}", &z.to_string())
+        .replace("{x}", &x.to_string())
+        .replace("{y}", &y.to_string());
     for key in SECRET_KEYS {
         let token = format!("{{secret:{key}}}");
         if url.contains(&token) {
             url = url.replace(&token, &get_secret(key)?.unwrap_or_default());
         }
     }
-    let client = LANTMATERIET_CLIENT.get_or_init(reqwest::blocking::Client::new);
-    let request = client.get(url);
+
+    let cache = REMOTE_TILE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if cache_enabled {
+        if let Ok(mut entries) = cache.lock() {
+            if let Some((created, bytes)) = entries.get(&url) {
+                if created.elapsed() < Duration::from_secs(300) {
+                    let cloned = bytes.clone();
+                    let mime = mime_of(&cloned);
+                    return Ok((cloned, mime));
+                }
+            }
+            entries.retain(|_, (created, _)| created.elapsed() < Duration::from_secs(600));
+        }
+    }
+
+    let client = remote_tile_client();
+    let request = client.get(&url);
     let request = if let Ok(value) = serde_json::from_str::<serde_json::Value>(&auth) {
-        match (value.get("username").and_then(serde_json::Value::as_str), value.get("password").and_then(serde_json::Value::as_str)) {
-            (Some(username), Some(password)) => request.basic_auth(get_secret(username)?.unwrap_or_default(), Some(get_secret(password)?.unwrap_or_default())),
+        match (
+            value.get("username").and_then(serde_json::Value::as_str),
+            value.get("password").and_then(serde_json::Value::as_str),
+        ) {
+            (Some(username), Some(password)) => request.basic_auth(
+                get_secret(username)?.unwrap_or_default(),
+                Some(get_secret(password)?.unwrap_or_default()),
+            ),
             _ => request,
         }
     } else {
@@ -779,7 +862,16 @@ fn read_remote_tile(app: &AppHandle, path: &str) -> Res<(Vec<u8>, &'static str)>
         return Err(format!("Etäpalvelin palautti HTTP {}", response.status()));
     }
     let bytes = response.bytes().map_err(e)?.to_vec();
-    Ok((bytes.clone(), mime_of(&bytes)))
+    let mime = mime_of(&bytes);
+    if cache_enabled {
+        if let Ok(mut entries) = cache.lock() {
+            if entries.len() >= 512 {
+                entries.clear();
+            }
+            entries.insert(url, (Instant::now(), bytes.clone()));
+        }
+    }
+    Ok((bytes, mime))
 }
 
 // ---------- Merkinnät ja mittaukset ----------
@@ -904,20 +996,27 @@ fn read_tile(app: &AppHandle, path: &str) -> Result<(Vec<u8>, &'static str), Str
     let (id, z, x, y) = parse_tile_path(path)?;
     let flipped = (1u32 << z) - 1 - y;
 
-    let db = app.try_state::<Db>().ok_or("tietokanta ei valmis")?;
-    let (base, pattern): (String, String) = {
-        let c = db.0.lock().map_err(e)?;
-        c.query_row(
-            "SELECT base_path, pattern FROM local_sources WHERE id = ?1",
-            [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .map_err(e)?
-    };
+    let meta = get_source_meta(app, id)?;
+    let base = meta.base_path;
+    let pattern = meta.pattern;
 
     let bytes = if base.to_lowercase().ends_with(".mbtiles") {
-        let conn =
-            Connection::open_with_flags(&base, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(e)?;
+        let pool = MBTILES_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        let conn_arc = {
+            let mut map = pool.lock().map_err(e)?;
+            if let Some(existing) = map.get(&base) {
+                Arc::clone(existing)
+            } else {
+                if map.len() >= 16 {
+                    map.clear();
+                }
+                let conn = Connection::open_with_flags(&base, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(e)?;
+                let arc = Arc::new(Mutex::new(conn));
+                map.insert(base.clone(), Arc::clone(&arc));
+                arc
+            }
+        };
+        let conn = conn_arc.lock().map_err(e)?;
         conn.query_row(
             "SELECT tile_data FROM tiles WHERE zoom_level=?1 AND tile_column=?2 AND tile_row=?3",
             params![z, x, flipped],
@@ -949,52 +1048,6 @@ fn read_tile(app: &AppHandle, path: &str) -> Result<(Vec<u8>, &'static str), Str
     };
     let mime = mime_of(&bytes);
     Ok((bytes, mime))
-}
-
-fn read_lantmateriet_tile(_app: &AppHandle, path: &str) -> Result<(Vec<u8>, &'static str), String> {
-    let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
-    if parts.len() != 3 {
-        return Err("virheellinen Lantmäteriet-laatan polku".into());
-    }
-    let z = parts[0];
-    let x = parts[1];
-    let y = parts[2].split('.').next().unwrap_or("");
-    let username = get_secret("lantmaterietUsername")?.unwrap_or_default();
-    let password = get_secret("lantmaterietPassword")?.unwrap_or_default();
-    if username.is_empty() || password.is_empty() {
-        return Err("Lantmäteriet-tunnukset puuttuvat".into());
-    }
-
-    let url = format!(
-        "https://maps.lantmateriet.se/open/topowebb-ccby/v1/wmts/1.0.0/topowebb/default/3857/{z}/{y}/{x}.png"
-    );
-    let cache = LANTMATERIET_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Ok(mut entries) = cache.lock() {
-        if let Some((created, bytes)) = entries.get(&url) {
-            if created.elapsed() < Duration::from_secs(300) {
-                return Ok((bytes.clone(), "image/png"));
-            }
-        }
-        entries.retain(|_, (created, _)| created.elapsed() < Duration::from_secs(600));
-    }
-
-    let client = LANTMATERIET_CLIENT.get_or_init(reqwest::blocking::Client::new);
-    let response = client
-        .get(&url)
-        .basic_auth(username, Some(password))
-        .send()
-        .map_err(e)?;
-    if !response.status().is_success() {
-        return Err(format!("Lantmäteriet palautti HTTP {}", response.status()));
-    }
-    let bytes = response.bytes().map_err(e)?.to_vec();
-    if let Ok(mut entries) = cache.lock() {
-        if entries.len() >= 512 {
-            entries.clear();
-        }
-        entries.insert(url, (Instant::now(), bytes.clone()));
-    }
-    Ok((bytes, "image/png"))
 }
 
 #[cfg(test)]
@@ -1047,50 +1100,96 @@ mod tests {
     }
 }
 
+#[tauri::command]
+fn save_export_file(app: tauri::AppHandle, filename: String, content: String) -> Result<String, String> {
+    let safe_name = std::path::Path::new(&filename)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| !n.is_empty())
+        .unwrap_or("mittaus.geojson");
+    let downloads = app.path().download_dir().map_err(|err| err.to_string())?;
+    std::fs::create_dir_all(&downloads).map_err(|err| err.to_string())?;
+
+    let mut target = downloads.join(safe_name);
+    if target.exists() {
+        let stem = target
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("mittaus")
+            .to_string();
+        let ext = target
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("geojson")
+            .to_string();
+        for i in 1..1000 {
+            let candidate = downloads.join(format!("{stem} ({i}).{ext}"));
+            if !candidate.exists() {
+                target = candidate;
+                break;
+            }
+        }
+    }
+
+    std::fs::write(&target, content.as_bytes()).map_err(|err| err.to_string())?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .register_uri_scheme_protocol("app-tile", |ctx, request| {
-            match read_tile(ctx.app_handle(), request.uri().path()) {
-                Ok((bytes, mime)) => Response::builder()
-                    .status(200)
-                    .header("Content-Type", mime)
-                    .header("Access-Control-Allow-Origin", "*")
-                    .body(bytes)
-                    .unwrap(),
-                Err(_) => Response::builder()
-                    .status(404)
-                    .header("Access-Control-Allow-Origin", "*")
-                    .body(Vec::new())
-                    .unwrap(),
-            }
+        .register_asynchronous_uri_scheme_protocol("app-tile", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            let path = request.uri().path().to_string();
+            tauri::async_runtime::spawn_blocking(move || {
+                let response = match read_tile(&app, &path) {
+                    Ok((bytes, mime)) => Response::builder()
+                        .status(200)
+                        .header("Content-Type", mime)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(bytes)
+                        .unwrap(),
+                    Err(_) => Response::builder()
+                        .status(404)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(Vec::new())
+                        .unwrap(),
+                };
+                responder.respond(response);
+            });
         })
-        .register_uri_scheme_protocol("remote-tile", |ctx, request| {
-            let parts: Vec<&str> = request.uri().path().trim_matches('/').split('/').collect();
-            if parts.len() != 4 {
-                return Response::builder().status(400).body(Vec::new()).unwrap();
-            }
-            let source_id = parts[0].parse::<i64>();
-            let z = parts[1].parse::<u32>();
-            let x = parts[2].parse::<u32>();
-            let y = parts[3].split('.').next().unwrap_or("").parse::<i32>();
-            let result = match (source_id, z, x, y) {
-                (Ok(_), Ok(_), Ok(_), Ok(_)) => read_remote_tile(ctx.app_handle(), request.uri().path()),
-                _ => Err("virheellinen etälaatan polku".into()),
-            };
-            match result {
-                Ok((bytes, mime)) => Response::builder()
-                    .status(200)
-                    .header("Content-Type", mime)
-                    .header("Access-Control-Allow-Origin", "*")
-                    .body(bytes)
-                    .unwrap(),
-                Err(_) => Response::builder()
-                    .status(502)
-                    .header("Access-Control-Allow-Origin", "*")
-                    .body(Vec::new())
-                    .unwrap(),
-            }
+        .register_asynchronous_uri_scheme_protocol("remote-tile", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            let path = request.uri().path().to_string();
+            tauri::async_runtime::spawn_blocking(move || {
+                let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
+                if parts.len() != 4 {
+                    responder.respond(Response::builder().status(400).body(Vec::new()).unwrap());
+                    return;
+                }
+                let source_id = parts[0].parse::<i64>();
+                let z = parts[1].parse::<u32>();
+                let x = parts[2].parse::<u32>();
+                let y = parts[3].split('.').next().unwrap_or("").parse::<i32>();
+                let result = match (source_id, z, x, y) {
+                    (Ok(_), Ok(_), Ok(_), Ok(_)) => read_remote_tile(&app, &path),
+                    _ => Err("virheellinen etälaatan polku".into()),
+                };
+                let response = match result {
+                    Ok((bytes, mime)) => Response::builder()
+                        .status(200)
+                        .header("Content-Type", mime)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(bytes)
+                        .unwrap(),
+                    Err(_) => Response::builder()
+                        .status(502)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(Vec::new())
+                        .unwrap(),
+                };
+                responder.respond(response);
+            });
         })
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
@@ -1142,6 +1241,7 @@ pub fn run() {
                 .map_err(std::io::Error::other)?;
             ensure_user_feature_column(&conn, "image_data", "TEXT")
                 .map_err(std::io::Error::other)?;
+            seed_default_sources(&conn).map_err(std::io::Error::other)?;
             app.manage(Db(Mutex::new(conn)));
             Ok(())
         })
@@ -1159,7 +1259,8 @@ pub fn run() {
             list_features,
             add_feature,
             update_feature,
-            delete_feature
+            delete_feature,
+            save_export_file
         ])
         .run(tauri::generate_context!())
         .expect("Tauri-sovelluksen käynnistys epäonnistui");

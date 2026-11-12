@@ -1,12 +1,25 @@
-import { Layers, MoreHorizontal } from "lucide-react";
-import { useState, useEffect, type MouseEvent, type PointerEvent } from "react";
+import { 
+  Layers, 
+  MoreHorizontal, 
+  Folder, 
+  Plus, 
+  Check, 
+  ChevronRight, 
+  ChevronDown, 
+  EyeOff, 
+  Pencil, 
+  Trash2, 
+  RotateCcw, 
+  Copy 
+} from "lucide-react";
+import { useState, useEffect, useRef, type MouseEvent, type PointerEvent } from "react";
 import { useMapStore } from "../../../store/mapStore";
-import { addSourceConfig, deleteFeature, deleteSource, listFeatures, resetSourceToDefault, updateSourceConfig, type LocalSource, type UserFeature } from "../../../infrastructure/tauriBridge";
+import { addSourceConfig, deleteFeature, deleteSource, listFeatures, resetSourceToDefault, updateFeature, updateSourceConfig, type LocalSource, type UserFeature } from "../../../infrastructure/tauriBridge";
 import { requestConfirmation } from "../../../app/confirmation";
 import FeaturePanel from "../../markers/components/FeaturePanel";
 import type { MarkerFolder } from "../../markers/model/markerTypes";
 import LayerList from "../../layers/components/LayerList";
-import type { LayerListItem } from "../../layers/model/layerListTypes";
+import type { LayerListItem, LayerGroup } from "../../layers/model/layerListTypes";
 import AddLayerModal, { type NewLayerSource } from "../../layers/components/AddLayerModal";
 import LayerEditorModal from "../../layers/components/LayerEditorModal";
 import type { LayerViewDraft } from "../../layers/model/layerViewTypes";
@@ -16,11 +29,33 @@ import { requiredSecrets } from "../sources/resolveUrl";
 export default function LayerSwitcher() {
   const [openLayers, setOpenLayers] = useState(true);
   const [openFeatures, setOpenFeatures] = useState(true);
-  const { basemap, overlays, overlayOrder, basemapOrder, hiddenLayers, sources, settings, setBasemap, toggleOverlay, hideLayer, restoreLayer, setLayerOrder, reloadSources: refreshSources, featuresVersion, bumpFeatures } = useMapStore();
+  const basemap = useMapStore((s) => s.basemap);
+  const overlays = useMapStore((s) => s.overlays);
+  const overlayOrder = useMapStore((s) => s.overlayOrder);
+  const basemapOrder = useMapStore((s) => s.basemapOrder);
+  const hiddenLayers = useMapStore((s) => s.hiddenLayers);
+  const sources = useMapStore((s) => s.sources);
+  const settings = useMapStore((s) => s.settings);
+  const setBasemap = useMapStore((s) => s.setBasemap);
+  const toggleOverlay = useMapStore((s) => s.toggleOverlay);
+  const hideLayer = useMapStore((s) => s.hideLayer);
+  const hideLayers = useMapStore((s) => s.hideLayers);
+  const unhideLayers = useMapStore((s) => s.unhideLayers);
+  const setLayerOrder = useMapStore((s) => s.setLayerOrder);
+  const refreshSources = useMapStore((s) => s.reloadSources);
+  const featuresVersion = useMapStore((s) => s.featuresVersion);
+  const bumpFeatures = useMapStore((s) => s.bumpFeatures);
   const rawOverlayOpacity = Number(settings.uiOverlayOpacity ?? "1");
   const overlayOpacity = Number.isFinite(rawOverlayOpacity) ? Math.min(1, Math.max(0, rawOverlayOpacity)) : 1;
+  const containerRef = useRef<HTMLDivElement>(null);
   const [features, setFeatures] = useState<UserFeature[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; id: string; name: string; source?: LocalSource; overlay: boolean } | null>(null);
+  const [groupMenu, setGroupMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(null);
+  const [groups, setGroups] = useState<LayerGroup[]>([]);
+  const [layerGroupMap, setLayerGroupMap] = useState<Record<string, string>>({});
+  const [groupsMenuOpen, setGroupsMenuOpen] = useState(false);
+  const [newGroupModalOpen, setNewGroupModalOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
   const [editDraft, setEditDraft] = useState<LocalSource | null>(null);
   const [editLayer, setEditLayer] = useState<{ id: string; name: string; overlay: boolean } | null>(null);
   const [selectedBasemap, setSelectedBasemap] = useState(basemap);
@@ -34,6 +69,7 @@ export default function LayerSwitcher() {
     api_type: "local_tile" as LocalSource["api_type"], tile_size: 256, max_zoom: 19, layer_name: "", style: "", attribution: "",
   });
   const [dragging, setDragging] = useState<{ kind: "overlay" | "basemap"; id: string } | null>(null);
+  const [draggingGroup, setDraggingGroup] = useState<{ role: "overlay" | "basemap"; id: string } | null>(null);
   const [folders, setFolders] = useState<MarkerFolder[]>([]);
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
   const [folderDraft, setFolderDraft] = useState("");
@@ -58,6 +94,93 @@ export default function LayerSwitcher() {
   const saveFolders = async (next: MarkerFolder[]) => {
     setFolders(next);
     await useMapStore.getState().setSetting("markerFolders", JSON.stringify(next));
+  };
+
+  useEffect(() => {
+    try {
+      const parsedGroups = JSON.parse(settings.layerGroups ?? "[]") as LayerGroup[];
+      setGroups(Array.isArray(parsedGroups) ? parsedGroups.filter((g) => g && typeof g.id === "string" && typeof g.name === "string") : []);
+    } catch {
+      setGroups([]);
+    }
+    try {
+      const parsedMap = JSON.parse(settings.layerGroupMap ?? "{}") as Record<string, string>;
+      setLayerGroupMap(parsedMap && typeof parsedMap === "object" ? parsedMap : {});
+    } catch {
+      setLayerGroupMap({});
+    }
+  }, [settings.layerGroups, settings.layerGroupMap]);
+
+  const setLayerGroup = (layerId: string, groupId: string | null) => {
+    const nextMap = { ...layerGroupMap };
+    if (!groupId) {
+      delete nextMap[layerId];
+    } else {
+      nextMap[layerId] = groupId;
+    }
+    setLayerGroupMap(nextMap);
+    void useMapStore.getState().setSetting("layerGroupMap", JSON.stringify(nextMap));
+    setMenu(null);
+  };
+
+  const createGroup = (name: string, assignLayerId?: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const newGroup: LayerGroup = { id: `grp-${Date.now()}`, name: trimmed };
+    const nextGroups = [...groups, newGroup];
+    setGroups(nextGroups);
+    void useMapStore.getState().setSetting("layerGroups", JSON.stringify(nextGroups));
+    if (assignLayerId) {
+      const nextMap = { ...layerGroupMap, [assignLayerId]: newGroup.id };
+      setLayerGroupMap(nextMap);
+      void useMapStore.getState().setSetting("layerGroupMap", JSON.stringify(nextMap));
+    }
+    setMenu(null);
+  };
+
+  const hideGroup = (groupId: string) => {
+    const layerIdsInGroup = Object.keys(layerGroupMap).filter((id) => layerGroupMap[id] === groupId);
+    const nextGroups = groups.map((g) => (g.id === groupId ? { ...g, hidden: true } : g));
+    setGroups(nextGroups);
+    void useMapStore.getState().setSetting("layerGroups", JSON.stringify(nextGroups));
+    if (layerIdsInGroup.length > 0) {
+      hideLayers(layerIdsInGroup);
+    }
+    setGroupMenu(null);
+  };
+
+  const restoreGroup = (groupId: string) => {
+    const layerIdsInGroup = Object.keys(layerGroupMap).filter((id) => layerGroupMap[id] === groupId);
+    const nextGroups = groups.map((g) => (g.id === groupId ? { id: g.id, name: g.name } : g));
+    setGroups(nextGroups);
+    void useMapStore.getState().setSetting("layerGroups", JSON.stringify(nextGroups));
+    if (layerIdsInGroup.length > 0) {
+      unhideLayers(layerIdsInGroup);
+    }
+  };
+
+  const deleteGroup = async (groupId: string) => {
+    const target = groups.find((g) => g.id === groupId);
+    if (!target) return;
+    setGroupMenu(null);
+    const layerIdsInGroup = Object.keys(layerGroupMap).filter((id) => layerGroupMap[id] === groupId);
+    const confirmMsg = layerIdsInGroup.length > 0
+      ? `Haluatko varmasti poistaa ryhmän "${target.name}"? Ryhmän sisällä olevat tasot (${layerIdsInGroup.length} kpl) piilotetaan.`
+      : `Haluatko varmasti poistaa ryhmän "${target.name}"?`;
+    if (await requestConfirmation(confirmMsg)) {
+      const nextGroups = groups.filter((g) => g.id !== groupId);
+      setGroups(nextGroups);
+      void useMapStore.getState().setSetting("layerGroups", JSON.stringify(nextGroups));
+      const nextMap = { ...layerGroupMap };
+      layerIdsInGroup.forEach((id) => {
+        delete nextMap[id];
+      });
+      setLayerGroupMap(nextMap);
+      void useMapStore.getState().setSetting("layerGroupMap", JSON.stringify(nextMap));
+      if (layerIdsInGroup.length > 0) {
+        hideLayers(layerIdsInGroup);
+      }
+    }
   };
 
   const hiddenFeatureIds = (() => {
@@ -98,7 +221,16 @@ export default function LayerSwitcher() {
   };
 
   const removeFolder = async (folder: MarkerFolder) => {
-    if (await requestConfirmation(`Poistetaanko kansio "${folder.name}"?`)) void saveFolders(folders.filter((item) => item.id !== folder.id));
+    if (await requestConfirmation(`Poistetaanko kansio "${folder.name}"?`)) {
+      const affected = features.filter((item) => item.folder_id === folder.id);
+      await Promise.all(
+        affected.map((item) =>
+          updateFeature(item.id, item.title, item.description, item.feature_type, item.geojson, "", item.color, item.image_data),
+        ),
+      );
+      await saveFolders(folders.filter((item) => item.id !== folder.id));
+      if (affected.length > 0) bumpFeatures();
+    }
     setActionMenu(null);
   };
 
@@ -132,8 +264,24 @@ export default function LayerSwitcher() {
   });
   // Piilotetut tasot säilyvät all*-listoissa, jotta ne voidaan palauttaa,
   // mutta niitä ei näytetä aktiivisten karttatasojen luetteloissa.
+  const hiddenGroupIds = new Set(groups.filter((g) => g.hidden).map((g) => g.id));
+  const hiddenGroupItems = groups
+    .filter((g) => g.hidden)
+    .map((g) => ({
+      id: g.id,
+      name: g.name,
+      count: Object.values(layerGroupMap).filter((gid) => gid === g.id).length,
+    }));
   const visibleBasemaps = allBasemaps.filter((layer) => !hiddenLayers.includes(layer.id)) as LayerListItem[];
   const visibleOverlays = allOverlays.filter((layer) => !hiddenLayers.includes(layer.id)) as LayerListItem[];
+  const hiddenLayerItems = [
+    ...allBasemaps
+      .filter((layer) => hiddenLayers.includes(layer.id) && !hiddenGroupIds.has(layerGroupMap[layer.id] ?? ""))
+      .map((layer) => ({ ...layer, role: "basemap" as const })),
+    ...allOverlays
+      .filter((layer) => hiddenLayers.includes(layer.id) && !hiddenGroupIds.has(layerGroupMap[layer.id] ?? ""))
+      .map((layer) => ({ ...layer, role: "overlay" as const })),
+  ];
 
   // Palautetaan taso sekä piilotettujen listalta että aktiiviseen karttatilaan.
   // Basemap on valittava uudelleen, overlay puolestaan aktivoidaan tarvittaessa.
@@ -143,7 +291,10 @@ export default function LayerSwitcher() {
   };
 
   useEffect(() => {
-    const stopDragging = () => setDragging(null);
+    const stopDragging = () => {
+      setDragging(null);
+      setDraggingGroup(null);
+    };
     window.addEventListener("pointerup", stopDragging);
     window.addEventListener("pointercancel", stopDragging);
     return () => {
@@ -151,6 +302,19 @@ export default function LayerSwitcher() {
       window.removeEventListener("pointercancel", stopDragging);
     };
   }, []);
+
+  useEffect(() => {
+    if (!menu && !groupMenu && !actionMenu) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMenu(null);
+        setGroupMenu(null);
+        setActionMenu(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [menu, groupMenu, actionMenu]);
 
   const beginDrag = (event: PointerEvent, kind: "overlay" | "basemap", id: string) => {
     event.preventDefault();
@@ -167,6 +331,84 @@ export default function LayerSwitcher() {
     order.splice(from, 1);
     order.splice(to, 0, dragging.id);
     setLayerOrder(kind, order);
+  };
+
+  const beginDragGroup = (event: PointerEvent, role: "overlay" | "basemap", groupId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDraggingGroup({ role, id: groupId });
+  };
+
+  const applyLayerOrderPreservingHidden = (role: "overlay" | "basemap", visibleOrder: string[]) => {
+    const existing = role === "overlay" ? overlayOrder : basemapOrder;
+    const visibleSet = new Set(visibleOrder);
+    const hiddenRest = existing.filter((id) => !visibleSet.has(id));
+    setLayerOrder(role, [...visibleOrder, ...hiddenRest]);
+  };
+
+  const moveDraggedGroup = (role: "overlay" | "basemap", targetGroupId: string, ids: string[]) => {
+    if (!draggingGroup || draggingGroup.role !== role || draggingGroup.id === targetGroupId) return;
+    const groupLayers = ids.filter((id) => layerGroupMap[id] === draggingGroup.id);
+    const targetLayers = ids.filter((id) => layerGroupMap[id] === targetGroupId);
+    if (groupLayers.length === 0 || targetLayers.length === 0) return;
+
+    const fromFirst = ids.indexOf(groupLayers[0]);
+    const targetFirst = ids.indexOf(targetLayers[0]);
+    const groupSet = new Set(groupLayers);
+    const remaining = ids.filter((id) => !groupSet.has(id));
+
+    if (fromFirst < targetFirst) {
+      const targetLastIdx = remaining.lastIndexOf(targetLayers[targetLayers.length - 1]);
+      remaining.splice(targetLastIdx + 1, 0, ...groupLayers);
+    } else {
+      const targetFirstIdx = remaining.indexOf(targetLayers[0]);
+      remaining.splice(targetFirstIdx, 0, ...groupLayers);
+    }
+    applyLayerOrderPreservingHidden(role, remaining);
+  };
+
+  const moveDraggedGroupOverLayer = (role: "overlay" | "basemap", targetLayerId: string, ids: string[]) => {
+    if (!draggingGroup || draggingGroup.role !== role) return;
+    if (layerGroupMap[targetLayerId] === draggingGroup.id) return;
+    const groupLayers = ids.filter((id) => layerGroupMap[id] === draggingGroup.id);
+    if (groupLayers.length === 0) return;
+
+    const fromFirst = ids.indexOf(groupLayers[0]);
+    const targetIdx = ids.indexOf(targetLayerId);
+    if (targetIdx < 0) return;
+
+    const groupSet = new Set(groupLayers);
+    const remaining = ids.filter((id) => !groupSet.has(id));
+    const targetInRemaining = remaining.indexOf(targetLayerId);
+    if (targetInRemaining < 0) return;
+
+    if (fromFirst < targetIdx) {
+      remaining.splice(targetInRemaining + 1, 0, ...groupLayers);
+    } else {
+      remaining.splice(targetInRemaining, 0, ...groupLayers);
+    }
+    applyLayerOrderPreservingHidden(role, remaining);
+  };
+
+  const moveLayerOverGroup = (role: "overlay" | "basemap", targetGroupId: string, ids: string[]) => {
+    if (!dragging || dragging.kind !== role) return;
+    if (layerGroupMap[dragging.id] === targetGroupId) return;
+    const targetLayers = ids.filter((id) => layerGroupMap[id] === targetGroupId);
+    if (targetLayers.length === 0) return;
+
+    const fromIdx = ids.indexOf(dragging.id);
+    const targetFirst = ids.indexOf(targetLayers[0]);
+    if (fromIdx < 0) return;
+
+    const remaining = ids.filter((id) => id !== dragging.id);
+    if (fromIdx < targetFirst) {
+      const targetLastIdx = remaining.lastIndexOf(targetLayers[targetLayers.length - 1]);
+      remaining.splice(targetLastIdx + 1, 0, dragging.id);
+    } else {
+      const targetFirstIdx = remaining.indexOf(targetLayers[0]);
+      remaining.splice(targetFirstIdx, 0, dragging.id);
+    }
+    applyLayerOrderPreservingHidden(role, remaining);
   };
 
   const addNewSource = async () => {
@@ -198,7 +440,29 @@ export default function LayerSwitcher() {
 
   const openMenu = (event: MouseEvent, id: string, name: string, overlay: boolean, source?: LocalSource) => {
     event.preventDefault();
-    setMenu({ x: event.clientX, y: event.clientY, id, name, overlay, source });
+    event.stopPropagation();
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    const btnRect = event.currentTarget.getBoundingClientRect();
+    const panelRight = containerRect ? containerRect.right + 6 : btnRect.right + 6;
+    const x = Math.min(panelRight, window.innerWidth - 220);
+    const y = Math.max(10, Math.min(btnRect.top, window.innerHeight - 340));
+    setGroupMenu(null);
+    setMenu({ x, y, id, name, overlay, source });
+    setGroupsMenuOpen(false);
+    setNewGroupModalOpen(false);
+    setNewGroupName("");
+  };
+
+  const openGroupMenu = (event: MouseEvent, id: string, name: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    const btnRect = event.currentTarget.getBoundingClientRect();
+    const panelRight = containerRect ? containerRect.right + 6 : btnRect.right + 6;
+    const x = Math.min(panelRight, window.innerWidth - 220);
+    const y = Math.max(10, Math.min(btnRect.top, window.innerHeight - 160));
+    setMenu(null);
+    setGroupMenu({ x, y, id, name });
   };
 
   const editSource = async () => {
@@ -211,16 +475,21 @@ export default function LayerSwitcher() {
       lantmaterietPassword: settings.lantmaterietPassword ?? "",
       owmKey: settings.owmKey ?? "",
     });
-    let savedView: LayerViewDraft = { zoomOffset: 0, magnification: 1 };
+    let savedView: LayerViewDraft = {
+      zoomOffset: source ? Math.max(-8, Math.min(8, source.view_zoom_offset || 0)) : 0,
+      magnification: source?.view_magnification === 2 || source?.view_magnification === 4 ? source.view_magnification : 1,
+    };
     try {
       const parsed = JSON.parse(settings.layerViewSettings ?? "{}") as Record<string, Partial<LayerViewDraft>>;
       const value = parsed[menu.id];
-      savedView = {
-        zoomOffset: Number.isFinite(value?.zoomOffset) ? Math.max(-8, Math.min(8, Number(value?.zoomOffset))) : 0,
-        magnification: value?.magnification === 2 || value?.magnification === 4 ? value.magnification : 1,
-      };
+      if (value && savedView.zoomOffset === 0 && savedView.magnification === 1) {
+        savedView = {
+          zoomOffset: Number.isFinite(value.zoomOffset) ? Math.max(-8, Math.min(8, Number(value.zoomOffset))) : 0,
+          magnification: value.magnification === 2 || value.magnification === 4 ? value.magnification : 1,
+        };
+      }
     } catch {
-      savedView = { zoomOffset: 0, magnification: 1 };
+      // Sivuutetaan virheellinen JSON
     }
     setViewDraft(savedView);
     if (source) setEditDraft({ ...source });
@@ -249,9 +518,10 @@ export default function LayerSwitcher() {
 
   const saveSource = async () => {
     if (!editDraft) return;
+    const address = (editDraft.url || editDraft.base_path).trim();
     await updateSourceConfig(editDraft.id, {
-      name: editDraft.name.trim() || "Karttaso",
-      base_path: editDraft.base_path.trim(),
+      name: editDraft.name.trim() || "Karttataso",
+      base_path: (editDraft.base_path || address).trim(),
       pattern: editDraft.pattern.trim() || "{z}/{x}/{y}.png",
       projection: editDraft.projection,
       role: editDraft.role,
@@ -263,13 +533,14 @@ export default function LayerSwitcher() {
       tile_size: Math.max(64, Math.min(2048, Math.round(editDraft.tile_size))),
       layer_name: editDraft.layer_name.trim(),
       style: editDraft.style.trim(),
-      url: editDraft.url || editDraft.base_path,
+      url: address,
       params: editDraft.params,
       auth: editDraft.auth,
       note: editDraft.note,
-      view_zoom_offset: editDraft.view_zoom_offset,
-      view_magnification: editDraft.view_magnification,
+      view_zoom_offset: Math.max(-8, Math.min(8, Math.round(viewDraft.zoomOffset))),
+      view_magnification: viewDraft.magnification === 2 || viewDraft.magnification === 4 ? viewDraft.magnification : 1,
     });
+    await saveViewSettings(`src:${editDraft.id}`);
     await refreshSources();
     if (basemap === `src:${editDraft.id}` && editDraft.role === "overlay") {
       const fallback = sources.find((source) => source.builtin_key === "osm");
@@ -323,7 +594,7 @@ export default function LayerSwitcher() {
     <>
       <div className="absolute left-2 top-2 z-10 flex w-[min(16rem,calc(100vw-1rem))] flex-col gap-2 sm:left-3 sm:top-3" style={{ opacity: overlayOpacity }}>
       {/* Karttatasot */}
-      <div className="relative z-[70] rounded-lg bg-white/95 dark:bg-zinc-950/95 dark:text-white text-sm shadow-lg backdrop-blur">
+      <div ref={containerRef} className="relative z-[70] rounded-lg bg-white/95 dark:bg-zinc-950/95 dark:text-white text-sm shadow-lg backdrop-blur">
         <div className="flex items-center justify-between px-3 py-2">
           <button className="flex items-center gap-2 font-semibold" onClick={() => setOpenLayers(!openLayers)}>
             <Layers size={16} /> Karttatasot
@@ -339,35 +610,54 @@ export default function LayerSwitcher() {
         </div>
         {actionMenu?.type === "layers" && (
           <div
-            className="fixed z-[70] max-h-[min(70vh,32rem)] w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-3 text-xs text-gray-800 shadow-xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-white"
-            style={{ left: Math.max(8, actionMenu.x - 256), top: Math.min(actionMenu.y, window.innerHeight - 280) }}
+            className="fixed z-[70] max-h-[min(70vh,32rem)] w-56 overflow-y-auto rounded-lg border border-slate-200 bg-white p-3 text-xs text-gray-800 shadow-xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-white"
+            style={{ left: Math.max(8, actionMenu.x - 224), top: Math.min(actionMenu.y, window.innerHeight - 200) }}
           >
-            <div className="mb-1 font-semibold text-gray-500">Lisää</div>
-            <div className="mb-2 grid grid-cols-2 gap-1">
-              <button className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700" onClick={() => { setNewSource({ ...newSource, role: "basemap" }); setAddOpen(true); setActionMenu(null); }}>Karttataso</button>
-              <button className="rounded border border-slate-300 px-2 py-1 hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700" onClick={() => { setNewSource({ ...newSource, role: "overlay" }); setAddOpen(true); setActionMenu(null); }}>Päällys</button>
+            <div className="mb-1 font-semibold text-gray-500 dark:text-zinc-400">Lisää uusi taso</div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                className="rounded border border-slate-300 px-2 py-1.5 hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700 text-center font-medium"
+                onClick={() => { setNewSource({ ...newSource, role: "basemap" }); setAddOpen(true); setActionMenu(null); }}
+              >
+                Pohjakartta
+              </button>
+              <button
+                className="rounded border border-slate-300 px-2 py-1.5 hover:bg-slate-100 dark:border-gray-600 dark:hover:bg-gray-700 text-center font-medium"
+                onClick={() => { setNewSource({ ...newSource, role: "overlay" }); setAddOpen(true); setActionMenu(null); }}
+              >
+                Päällyskartta
+              </button>
             </div>
-            <div className="mb-1 font-semibold text-gray-500">Piilotetut tasot</div>
-            {hiddenLayers.length === 0 ? (
-              <div className="text-gray-400">Ei piilotettuja tasoja.</div>
-            ) : [...allBasemaps.filter((layer) => hiddenLayers.includes(layer.id)).map((layer) => ({ ...layer, role: "basemap" as const })), ...allOverlays.filter((layer) => hiddenLayers.includes(layer.id)).map((layer) => ({ ...layer, role: "overlay" as const }))].map((layer) => (
-              <button key={layer.id} className="block w-full rounded px-2 py-1 text-left hover:bg-slate-100 dark:hover:bg-gray-700" onClick={() => restoreHiddenLayer(layer.id, layer.role)}>Ota näkyviin: {layer.name}</button>
-            ))}
           </div>
         )}
-        {openLayers && <LayerList
-          basemaps={visibleBasemaps}
-          overlays={visibleOverlays}
-          basemap={basemap}
-          activeOverlays={overlays}
-          dragging={dragging}
-          missing={missing}
-          onBeginDrag={beginDrag}
-          onMoveDraggedLayer={moveDraggedLayer}
-          onContextMenu={openMenu}
-          onSetBasemap={setBasemap}
-          onToggleOverlay={toggleOverlay}
-        />}
+        {openLayers && (
+          <LayerList
+            basemaps={visibleBasemaps}
+            overlays={visibleOverlays}
+            hiddenLayers={hiddenLayerItems}
+            hiddenGroups={hiddenGroupItems}
+            groups={groups}
+            layerGroupMap={layerGroupMap}
+            basemap={basemap}
+            activeOverlays={overlays}
+            dragging={dragging}
+            draggingGroup={draggingGroup}
+            missing={missing}
+            onBeginDrag={beginDrag}
+            onMoveDraggedLayer={moveDraggedLayer}
+            onBeginDragGroup={beginDragGroup}
+            onMoveDraggedGroup={moveDraggedGroup}
+            onMoveDraggedGroupOverLayer={moveDraggedGroupOverLayer}
+            onMoveLayerOverGroup={moveLayerOverGroup}
+            onContextMenu={openMenu}
+            onOpenMenu={openMenu}
+            onOpenGroupMenu={openGroupMenu}
+            onRestoreLayer={restoreHiddenLayer}
+            onRestoreGroup={restoreGroup}
+            onSetBasemap={setBasemap}
+            onToggleOverlay={toggleOverlay}
+          />
+        )}
       </div>
 
       <FeaturePanel
@@ -405,38 +695,206 @@ export default function LayerSwitcher() {
       )}
       </div>
       <AddLayerModal value={newSource} open={addOpen} onChange={setNewSource} onClose={() => setAddOpen(false)} onSubmit={() => void addNewSource()} />
-      {menu && (
-        <div
-          className="fixed z-[80] min-w-44 rounded-lg border border-gray-200 bg-white py-1 text-xs text-gray-800 shadow-xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-white"
-          style={{ left: menu.x, top: menu.y }}
-          onMouseLeave={() => setMenu(null)}
-        >
-          <button className="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-700" onClick={() => { hideLayer(menu.id, menu.overlay ? "overlay" : "basemap"); setMenu(null); }}>
-            Piilota taso
-          </button>
-          <button className="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-700" onClick={() => void editSource()}>
-            Muokkaa
-          </button>
-          {menu.source && !menu.source.is_default && (
-            <>
-              <button className="block w-full px-3 py-1.5 text-left text-red-600 hover:bg-gray-100 dark:hover:bg-gray-700" onClick={() => void remove()}>
-                Poista
-              </button>
-            </>
-          )}
-          {menu.source?.is_default && (
-            <button className="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-700" onClick={async () => {
-              await resetSourceToDefault(menu.source!.id);
-              await refreshSources();
-              setMenu(null);
-            }}>
-              Palauta oletus
+      {groupMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-[75] cursor-default"
+            onClick={() => setGroupMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setGroupMenu(null); }}
+          />
+          <div
+            className="fixed z-[80] min-w-44 max-w-60 rounded-xl border border-slate-200 bg-white/95 py-1 text-xs text-slate-800 shadow-2xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100"
+            style={{ left: groupMenu.x, top: groupMenu.y }}
+          >
+            <div className="px-3 py-1.5 font-semibold text-slate-500 dark:text-zinc-400 border-b border-slate-100 dark:border-zinc-800/80 truncate">
+              {groupMenu.name}
+            </div>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-zinc-800/70 transition"
+              onClick={() => hideGroup(groupMenu.id)}
+            >
+              <EyeOff size={14} className="text-slate-400 shrink-0" />
+              <span>Piilota ryhmä</span>
             </button>
-          )}
-          <button className="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-700" onClick={() => void duplicate()}>
-            Monista
-          </button>
-        </div>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40 transition"
+              onClick={() => void deleteGroup(groupMenu.id)}
+            >
+              <Trash2 size={14} className="shrink-0" />
+              <span>Poista ryhmä</span>
+            </button>
+          </div>
+        </>
+      )}
+      {menu && (
+        <>
+          <div
+            className="fixed inset-0 z-[75] cursor-default"
+            onClick={() => setMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setMenu(null); }}
+          />
+          <div
+            className="fixed z-[80] min-w-48 max-w-64 rounded-xl border border-slate-200 bg-white/95 py-1 text-xs text-slate-800 shadow-2xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100"
+            style={{ left: menu.x, top: menu.y }}
+          >
+            <div className="px-3 py-1.5 font-semibold text-slate-500 dark:text-zinc-400 border-b border-slate-100 dark:border-zinc-800/80 truncate">
+              {menu.name}
+            </div>
+
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-zinc-800/70 transition"
+              onClick={() => { hideLayer(menu.id, menu.overlay ? "overlay" : "basemap"); setMenu(null); }}
+            >
+              <EyeOff size={14} className="text-slate-400 shrink-0" />
+              <span>Piilota taso</span>
+            </button>
+
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-zinc-800/70 transition"
+              onClick={() => void editSource()}
+            >
+              <Pencil size={14} className="text-slate-400 shrink-0" />
+              <span>Muokkaa</span>
+            </button>
+
+            {/* Ryhmät alavalikko */}
+            <div className="border-t border-slate-100 dark:border-zinc-800/80 my-0.5">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-zinc-800/70 transition"
+                onClick={() => setGroupsMenuOpen((prev) => !prev)}
+              >
+                <div className="flex items-center gap-2">
+                  <Folder size={14} className="text-amber-500 shrink-0" />
+                  <span className="font-medium">Ryhmät</span>
+                </div>
+                {groupsMenuOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+              </button>
+
+              {groupsMenuOpen && (
+                <div className="border-t border-slate-100 bg-slate-50/80 p-1 dark:border-zinc-800/80 dark:bg-zinc-900/60 space-y-0.5 max-h-48 overflow-y-auto">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left hover:bg-white dark:hover:bg-zinc-800 transition"
+                    onClick={() => setLayerGroup(menu.id, null)}
+                  >
+                    <span className={!layerGroupMap[menu.id] ? "font-semibold text-blue-600 dark:text-blue-400" : ""}>
+                      Ei ryhmää
+                    </span>
+                    {!layerGroupMap[menu.id] && <Check size={13} className="text-blue-600 dark:text-blue-400 shrink-0" />}
+                  </button>
+
+                  {groups.map((group) => {
+                    const isSelected = layerGroupMap[menu.id] === group.id;
+                    return (
+                      <button
+                        key={group.id}
+                        type="button"
+                        className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left hover:bg-white dark:hover:bg-zinc-800 transition"
+                        onClick={() => setLayerGroup(menu.id, group.id)}
+                      >
+                        <span className={`truncate ${isSelected ? "font-semibold text-blue-600 dark:text-blue-400" : ""}`}>
+                          {group.name}
+                        </span>
+                        {isSelected && <Check size={13} className="text-blue-600 dark:text-blue-400 shrink-0" />}
+                      </button>
+                    );
+                  })}
+
+                  <div className="border-t border-slate-200 dark:border-zinc-700/60 pt-1 mt-1">
+                    {newGroupModalOpen ? (
+                      <div className="p-1 space-y-1.5">
+                        <input
+                          autoFocus
+                          type="text"
+                          placeholder="Uuden ryhmän nimi"
+                          className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none dark:border-zinc-700 dark:bg-zinc-900 text-slate-900 dark:text-white"
+                          value={newGroupName}
+                          onChange={(e) => setNewGroupName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              createGroup(newGroupName, menu.id);
+                              setNewGroupName("");
+                              setNewGroupModalOpen(false);
+                            } else if (e.key === "Escape") {
+                              setNewGroupModalOpen(false);
+                            }
+                          }}
+                        />
+                        <div className="flex gap-1 justify-end">
+                          <button
+                            type="button"
+                            className="rounded px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-200 dark:hover:bg-zinc-800"
+                            onClick={() => setNewGroupModalOpen(false)}
+                          >
+                            Peruuta
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded bg-blue-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-blue-700"
+                            onClick={() => {
+                              createGroup(newGroupName, menu.id);
+                              setNewGroupName("");
+                              setNewGroupModalOpen(false);
+                            }}
+                          >
+                            Luo ryhmä
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40 font-medium transition"
+                        onClick={() => setNewGroupModalOpen(true)}
+                      >
+                        <Plus size={13} />
+                        <span>Uusi ryhmä...</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {menu.source && !menu.source.is_default && (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-600 hover:bg-slate-100 dark:hover:bg-zinc-800/70 transition"
+                onClick={() => void remove()}
+              >
+                <Trash2 size={14} className="shrink-0" />
+                <span>Poista</span>
+              </button>
+            )}
+            {menu.source?.is_default && (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-zinc-800/70 transition"
+                onClick={async () => {
+                  await resetSourceToDefault(menu.source!.id);
+                  await refreshSources();
+                  setMenu(null);
+                }}
+              >
+                <RotateCcw size={14} className="text-slate-400 shrink-0" />
+                <span>Palauta oletus</span>
+              </button>
+            )}
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-zinc-800/70 transition"
+              onClick={() => void duplicate()}
+            >
+              <Copy size={14} className="text-slate-400 shrink-0" />
+              <span>Monista</span>
+            </button>
+          </div>
+        </>
       )}
       <LayerEditorModal
         editDraft={editDraft}
