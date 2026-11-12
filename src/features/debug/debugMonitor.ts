@@ -68,9 +68,9 @@ export function refreshDebugSnapshot() {
   const center = view?.getCenter();
   const pointer = state.cursor;
   const layers = map?.getLayers().getArray() ?? [];
-  const baseCount = layers.filter((l) => l.get("karttasovellus-layer-type") === "basemap").length;
-  const overlayCount = layers.filter((l) => l.get("karttasovellus-layer-type") === "overlay").length;
-  const vectorCount = layers.filter((l) => !l.get("karttasovellus-layer-type")).length;
+  const baseCount = layers.filter((l) => l.get("avokartasto-layer-type") === "basemap").length;
+  const overlayCount = layers.filter((l) => l.get("avokartasto-layer-type") === "overlay").length;
+  const vectorCount = layers.filter((l) => !l.get("avokartasto-layer-type")).length;
   const totalTiles = tileLoaded + tileFailed;
   const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
 

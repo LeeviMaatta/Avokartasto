@@ -7,8 +7,8 @@ use std::{
 
 use crate::{e, Res};
 
-pub const KEYRING_SERVICE: &str = "fi.karttasovellus.desktop";
-const LEGACY_KEYRING_SERVICE: &str = "fi.example.karttasovellus";
+pub const KEYRING_SERVICE: &str = "fi.avokartasto.desktop";
+const LEGACY_KEYRING_SERVICES: [&str; 2] = ["fi.karttasovellus.desktop", "fi.example.karttasovellus"];
 
 pub const SECRET_KEYS: [&str; 5] = [
     "mmlKey",
@@ -28,8 +28,8 @@ fn keyring_entry(key: &str) -> Res<Entry> {
     Entry::new(KEYRING_SERVICE, key).map_err(e)
 }
 
-fn legacy_keyring_entry(key: &str) -> Res<Entry> {
-    Entry::new(LEGACY_KEYRING_SERVICE, key).map_err(e)
+fn legacy_keyring_entry(service: &str, key: &str) -> Res<Entry> {
+    Entry::new(service, key).map_err(e)
 }
 
 pub fn set_secret(key: &str, value: &str) -> Res<()> {
@@ -67,17 +67,24 @@ pub fn get_secret(key: &str) -> Res<Option<String>> {
     }
     let fetched = match keyring_entry(key)?.get_password() {
         Ok(value) => Ok(Some(value)),
-        Err(KeyringError::NoEntry) => match legacy_keyring_entry(key)?.get_password() {
-            Ok(legacy_val) => {
-                // Migrate credential from legacy fi.example.karttasovellus entry on first read
-                if !legacy_val.is_empty() {
-                    let _ = keyring_entry(key)?.set_password(&legacy_val);
+        Err(KeyringError::NoEntry) => {
+            let mut migrated = None;
+            for service in LEGACY_KEYRING_SERVICES {
+                match legacy_keyring_entry(service, key)?.get_password() {
+                    Ok(legacy_val) => {
+                        // Migrate credential from legacy keyring entry on first read
+                        if !legacy_val.is_empty() {
+                            let _ = keyring_entry(key)?.set_password(&legacy_val);
+                        }
+                        migrated = Some(legacy_val);
+                        break;
+                    }
+                    Err(KeyringError::NoEntry) => continue,
+                    Err(error) => return Err(error.to_string()),
                 }
-                Ok(Some(legacy_val))
             }
-            Err(KeyringError::NoEntry) => Ok(None),
-            Err(error) => Err(error.to_string()),
-        },
+            Ok(migrated)
+        }
         Err(error) => Err(error.to_string()),
     }?;
     if let Ok(mut map) = cache.lock() {

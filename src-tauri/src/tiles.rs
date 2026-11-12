@@ -56,7 +56,7 @@ fn remote_tile_client() -> &'static reqwest::blocking::Client {
     REMOTE_TILE_CLIENT.get_or_init(|| {
         reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(15))
-            .user_agent("Karttasovellus/1.0")
+            .user_agent("Avokartasto/1.0")
             .build()
             .unwrap_or_else(|_| reqwest::blocking::Client::new())
     })

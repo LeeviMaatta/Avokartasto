@@ -86,7 +86,7 @@ export default function LoadingScreen({
             isRetro ? "tracking-normal" : ""
           }`}
         >
-          Karttasovellus
+          Avokartasto
         </h1>
 
         <p

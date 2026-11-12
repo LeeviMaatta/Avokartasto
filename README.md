@@ -1,4 +1,4 @@
-# Karttasovellus (Tauri v2 + React + OpenLayers)
+# Avokartasto (Tauri v2 + React + OpenLayers)
 
 ## Esivaatimukset (Windows 10/11)
 1. **Microsoft C++ Build Tools** (Visual Studio Installer → "Desktop development with C++")

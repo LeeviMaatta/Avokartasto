@@ -1024,7 +1024,7 @@ export default function SettingsModal() {
                       const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }));
                       const link = document.createElement("a");
                       link.href = url;
-                      link.download = `karttasovellus-debug-${new Date().toISOString().slice(0, 10)}.json`;
+                      link.download = `avokartasto-debug-${new Date().toISOString().slice(0, 10)}.json`;
                       link.click();
                       URL.revokeObjectURL(url);
                     }}

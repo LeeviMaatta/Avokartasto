@@ -1,10 +1,12 @@
 import { invokeTauri, inTauri } from "./runtime";
 
-const LS = "karttasovellus.settings";
+const LS = "avokartasto.settings";
+const LEGACY_LS = "karttasovellus.settings";
 
 const readLocalSettings = (): Record<string, string> => {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(LS) ?? "{}");
+    const raw = localStorage.getItem(LS) ?? localStorage.getItem(LEGACY_LS) ?? "{}";
+    const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error("Asetusten juuren on oltava objekti");
     }

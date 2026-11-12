@@ -11,9 +11,9 @@ import { useMapStore } from "../../../store/mapStore";
 import type { LocalSource } from "../../../infrastructure/tauriBridge";
 import { recordDebugEvent, recordTileEvent, recordTileStart } from "../../debug/debugMonitor";
 
-const APP_LAYER_TYPE = "karttasovellus-layer-type";
-const APP_LAYER_ID = "karttasovellus-layer-id";
-const APP_LAYER_SIGNATURE = "karttasovellus-layer-signature";
+const APP_LAYER_TYPE = "avokartasto-layer-type";
+const APP_LAYER_ID = "avokartasto-layer-id";
+const APP_LAYER_SIGNATURE = "avokartasto-layer-signature";
 
 interface MapLayersOptions {
   mapRef: RefObject<OlMap | null>;

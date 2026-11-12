@@ -80,9 +80,12 @@ pub fn migrate_legacy_data_dir(new_dir: &Path) {
     let Some(parent) = new_dir.parent() else {
         return;
     };
-    let legacy_db = parent.join("fi.example.karttasovellus").join("app_data.db");
-    if legacy_db.exists() {
-        let _ = std::fs::copy(&legacy_db, &target_db);
+    for legacy_identifier in ["fi.karttasovellus.desktop", "fi.example.karttasovellus"] {
+        let legacy_db = parent.join(legacy_identifier).join("app_data.db");
+        if legacy_db.exists() {
+            let _ = std::fs::copy(&legacy_db, &target_db);
+            break;
+        }
     }
 }
 

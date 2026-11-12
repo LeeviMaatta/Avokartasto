@@ -81,7 +81,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let temp_dir = std::env::temp_dir().join(format!("karttasovellus-export-test-{nonce}"));
+        let temp_dir = std::env::temp_dir().join(format!("avokartasto-export-test-{nonce}"));
         let first = save_export_to_dir(&temp_dir, "reitti.geojson", "{}").unwrap();
         let second = save_export_to_dir(&temp_dir, "reitti.geojson", "{\"v\":2}").unwrap();
         assert_ne!(first, second);

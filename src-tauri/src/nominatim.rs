@@ -8,7 +8,7 @@ fn nominatim_client() -> &'static reqwest::blocking::Client {
     NOMINATIM_CLIENT.get_or_init(|| {
         reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(12))
-            .user_agent("Karttasovellus/1.0 (+https://fi.karttasovellus.desktop)")
+            .user_agent("Avokartasto/1.0 (+https://fi.avokartasto.desktop)")
             .build()
             .unwrap_or_else(|_| reqwest::blocking::Client::new())
     })

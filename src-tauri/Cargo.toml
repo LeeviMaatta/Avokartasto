@@ -1,10 +1,10 @@
 [package]
-name = "karttasovellus"
+name = "avokartasto"
 version = "1.0.0"
 edition = "2021"
 
 [lib]
-name = "karttasovellus_lib"
+name = "avokartasto_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
