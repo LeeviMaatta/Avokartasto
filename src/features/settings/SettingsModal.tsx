@@ -349,7 +349,7 @@ export default function SettingsModal() {
                     <input
                       type="checkbox"
                       className="h-4 w-4 rounded accent-blue-600"
-                      checked={draft.removePendingMarkerOnDblClick === "1"}
+                      checked={draft.removePendingMarkerOnDblClick !== "0"}
                       onChange={(e) => setDraft({ ...draft, removePendingMarkerOnDblClick: e.target.checked ? "1" : "0" })}
                     />
                     <span>Poista tallentamaton merkki kaksoisklikkauksella</span>

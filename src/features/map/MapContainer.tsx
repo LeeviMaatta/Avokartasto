@@ -340,29 +340,22 @@ export default function MapContainer() {
       }
     });
 
+    const clearPendingMarkerOnDblClick = () => {
+      const state = useMapStore.getState();
+      if (state.settings.removePendingMarkerOnDblClick === "0") return false;
+      if (state.tool === "measure") return false;
+      if (!state.pendingMarker && !pendingMarkerFeature.current) return false;
+      if (pendingMarkerFeature.current) {
+        featSrc.current.removeFeature(pendingMarkerFeature.current);
+        pendingMarkerFeature.current = null;
+      }
+      useMapStore.setState({ pendingMarker: null, markerEditorOpen: false });
+      return true;
+    };
+
     map.on("dblclick", (e) => {
       if (e.originalEvent instanceof MouseEvent && e.originalEvent.button !== 0) return;
-      if (useMapStore.getState().settings.removePendingMarkerOnDblClick !== "1") return;
-      const pending = pendingMarkerFeature.current;
-      if (!pending) return;
-      const geom = pending.getGeometry();
-      let isHit = Boolean(
-        map.forEachFeatureAtPixel(
-          e.pixel,
-          (feat) => (feat === pending ? feat : undefined),
-          { hitTolerance: 16 },
-        ),
-      );
-      if (!isHit && geom instanceof Point) {
-        const pinPixel = map.getPixelFromCoordinate(geom.getCoordinates());
-        if (pinPixel) {
-          const dx = e.pixel[0] - pinPixel[0];
-          const dy = e.pixel[1] - pinPixel[1];
-          isHit = Math.abs(dx) <= 20 && dy >= -36 && dy <= 12;
-        }
-      }
-      if (isHit) {
-        useMapStore.setState({ pendingMarker: null, markerEditorOpen: false });
+      if (clearPendingMarkerOnDblClick()) {
         e.preventDefault();
         return false;
       }
@@ -370,6 +363,14 @@ export default function MapContainer() {
 
     // Oikea klikkaus mittausviivalla
     const viewport = map.getViewport();
+    const handleDblClick = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      if (clearPendingMarkerOnDblClick()) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    viewport.addEventListener("dblclick", handleDblClick);
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
       const pixel = map.getEventPixel(e);
@@ -448,6 +449,7 @@ export default function MapContainer() {
       mapRef.current = null;
       setDebugMap(null);
       viewport.removeEventListener("contextmenu", handleContextMenu);
+      viewport.removeEventListener("dblclick", handleDblClick);
       document.removeEventListener("pointerdown", closeContextMenuOutside);
     };
   }, []);

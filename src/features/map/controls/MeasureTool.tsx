@@ -82,13 +82,20 @@ export default function MeasureTool() {
   }, []);
 
   useEffect(() => {
-    if (!pendingMarker || tool === "measure" || markerDraft) return;
-    setMarkerDraft(emptyMarkerDraft(
-      JSON.stringify({ type: "Point", coordinates: pendingMarker }),
-      markerFolders[0]?.id ?? "",
-    ));
+    if (!pendingMarker || tool === "measure") {
+      setMarkerDraft((prev) => (prev && prev.id === undefined ? null : prev));
+      return;
+    }
+    setMarkerDraft((prev) =>
+      prev && prev.id !== undefined
+        ? prev
+        : emptyMarkerDraft(
+            JSON.stringify({ type: "Point", coordinates: pendingMarker }),
+            markerFolders[0]?.id ?? "",
+          ),
+    );
     setMsg("");
-  }, [pendingMarker, tool, markerDraft, markerFolders]);
+  }, [pendingMarker, tool, markerFolders]);
 
   useEffect(() => {
     const handleEditMeasurement = (event: Event) => {
