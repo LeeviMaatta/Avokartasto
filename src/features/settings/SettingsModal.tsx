@@ -124,7 +124,7 @@ export default function SettingsModal() {
       }}
     >
       <div 
-        className="flex max-h-[92vh] w-[calc(100vw-1rem)] max-w-[680px] flex-col rounded-2xl border border-slate-200 bg-white text-sm text-slate-800 shadow-2xl transition-all dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
+        className="flex max-h-[92vh] w-[calc(100vw-1rem)] max-w-[680px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-sm text-slate-800 shadow-2xl transition-all dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-heading"
@@ -830,10 +830,7 @@ export default function SettingsModal() {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50/50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/40 sm:px-6">
-          <span className="text-xs text-slate-500 dark:text-zinc-400">
-            Asetukset tallentuvat automaattisesti ikkunan sulkeutuessa.
-          </span>
+        <div className="flex items-center justify-end border-t border-slate-200 bg-slate-50/50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/40 sm:px-6">
           <button
             type="button"
             className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-medium text-white shadow hover:bg-blue-700 transition"

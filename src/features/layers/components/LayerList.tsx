@@ -189,7 +189,7 @@ export default function LayerList({
   };
 
   return (
-    <div className="max-h-[50vh] overflow-y-auto border-t border-slate-100 px-2 py-2 dark:border-zinc-800 sm:px-3">
+    <div className="max-h-[50vh] overflow-y-auto rounded-b-lg border-t border-slate-100 px-2 py-2 dark:border-zinc-800 sm:px-3">
       {/* Taustakartat alaotsikko */}
       <div className="mb-1">
         <button
