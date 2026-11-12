@@ -9,9 +9,17 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          openlayers: ["ol"],
-          charts: ["recharts"],
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("/ol/") || id.includes("\\ol\\")) return "openlayers";
+          if (id.includes("recharts")) return "recharts";
+          if (id.includes("d3-") || id.includes("victory-vendor")) return "d3-charts";
+          if (id.includes("react-dom") || id.includes("/react/") || id.includes("\\react\\") || id.includes("scheduler")) {
+            return "react-vendor";
+          }
+          if (id.includes("lucide-react") || id.includes("proj4") || id.includes("zustand")) {
+            return "ui-vendor";
+          }
         },
       },
     },
