@@ -16,7 +16,6 @@ npm run tauri build             # asennuspaketti: src-tauri/target/release/bundl
 `npm run dev` käynnistää pelkän frontendin selaimessa (localhost:1420) – SQLite ja paikalliset kartat toimivat vain Taurissa.
 
 ## API-avaimet (Asetukset-ikoni oikeassa yläkulmassa)
-- Google Maps JS API (Street View): console.cloud.google.com
 - Maanmittauslaitos: https://www.maanmittauslaitos.fi/rajapinnat/api-avaimen-ohje
 - Lantmäteriet Topo: Lantmäteriet-käyttäjän sähköposti ja salasana
 - OpenWeatherMap: openweathermap.org/api

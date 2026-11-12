@@ -6,4 +6,14 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
   server: { port: 1420, strictPort: true },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          openlayers: ["ol"],
+          charts: ["recharts"],
+        },
+      },
+    },
+  },
 });

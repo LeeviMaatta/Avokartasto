@@ -1,9 +1,18 @@
 use rusqlite::{params, Connection, OpenFlags};
 use serde::Serialize;
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
+};
 use tauri::{http::Response, AppHandle, Manager, State};
 
 pub struct Db(pub Mutex<Connection>);
+
+type CachedTile = (Instant, Vec<u8>);
+static LANTMATERIET_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+static LANTMATERIET_ASYNC_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+static LANTMATERIET_CACHE: OnceLock<Mutex<HashMap<String, CachedTile>>> = OnceLock::new();
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -12,7 +21,15 @@ CREATE TABLE IF NOT EXISTS local_sources (
     name TEXT NOT NULL,
     base_path TEXT NOT NULL,
     pattern TEXT NOT NULL,
-    projection TEXT DEFAULT 'EPSG:3857'
+    projection TEXT DEFAULT 'EPSG:3857',
+    role TEXT NOT NULL DEFAULT 'basemap',
+    opacity REAL NOT NULL DEFAULT 1.0,
+    max_zoom INTEGER NOT NULL DEFAULT 19,
+    attribution TEXT NOT NULL DEFAULT ''
+    ,api_type TEXT NOT NULL DEFAULT 'tile'
+    ,tile_size INTEGER NOT NULL DEFAULT 256
+    ,layer_name TEXT NOT NULL DEFAULT ''
+    ,style TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS user_features (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,6 +53,14 @@ struct LocalSource {
     base_path: String,
     pattern: String,
     projection: String,
+    role: String,
+    opacity: f64,
+    max_zoom: i64,
+    attribution: String,
+    api_type: String,
+    tile_size: i64,
+    layer_name: String,
+    style: String,
 }
 
 #[derive(Serialize)]
@@ -71,12 +96,30 @@ fn set_setting(db: State<Db>, key: String, value: String) -> Res<()> {
     Ok(())
 }
 
+#[tauri::command]
+fn set_settings(db: State<Db>, settings: HashMap<String, String>) -> Res<()> {
+    let mut c = db.0.lock().map_err(e)?;
+    let tx = c.transaction().map_err(e)?;
+    for (key, value) in settings {
+        tx.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )
+        .map_err(e)?;
+    }
+    tx.commit().map_err(e)
+}
+
 // ---------- Paikalliset lähteet ----------
 #[tauri::command]
 fn list_sources(db: State<Db>) -> Res<Vec<LocalSource>> {
     let c = db.0.lock().map_err(e)?;
     let mut s = c
-        .prepare("SELECT id, name, base_path, pattern, COALESCE(projection,'EPSG:3857') FROM local_sources ORDER BY id")
+        .prepare("SELECT id, name, base_path, pattern, COALESCE(projection,'EPSG:3857'),
+                  COALESCE(role,'basemap'), COALESCE(opacity,1.0), COALESCE(max_zoom,19),
+                  COALESCE(attribution,''), COALESCE(api_type,'tile'), COALESCE(tile_size,256),
+                  COALESCE(layer_name,''), COALESCE(style,'') FROM local_sources ORDER BY id")
         .map_err(e)?;
     let rows = s
         .query_map([], |r| {
@@ -86,6 +129,14 @@ fn list_sources(db: State<Db>) -> Res<Vec<LocalSource>> {
                 base_path: r.get(2)?,
                 pattern: r.get(3)?,
                 projection: r.get(4)?,
+                role: r.get(5)?,
+                opacity: r.get(6)?,
+                max_zoom: r.get(7)?,
+                attribution: r.get(8)?,
+                api_type: r.get(9)?,
+                tile_size: r.get(10)?,
+                layer_name: r.get(11)?,
+                style: r.get(12)?,
             })
         })
         .map_err(e)?;
@@ -93,11 +144,25 @@ fn list_sources(db: State<Db>) -> Res<Vec<LocalSource>> {
 }
 
 #[tauri::command]
-fn add_source(db: State<Db>, name: String, base_path: String, pattern: String) -> Res<i64> {
+fn add_source(
+    db: State<Db>,
+    name: String,
+    base_path: String,
+    pattern: String,
+    role: String,
+    opacity: f64,
+    max_zoom: i64,
+    attribution: String,
+    api_type: String,
+    tile_size: i64,
+    layer_name: String,
+    style: String,
+) -> Res<i64> {
     let c = db.0.lock().map_err(e)?;
     c.execute(
-        "INSERT INTO local_sources (name, base_path, pattern) VALUES (?1, ?2, ?3)",
-        params![name, base_path, pattern],
+        "INSERT INTO local_sources (name, base_path, pattern, role, opacity, max_zoom, attribution, api_type, tile_size, layer_name, style)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![name, base_path, pattern, role, opacity, max_zoom, attribution, api_type, tile_size, layer_name, style],
     )
     .map_err(e)?;
     Ok(c.last_insert_rowid())
@@ -108,6 +173,85 @@ fn delete_source(db: State<Db>, id: i64) -> Res<()> {
     let c = db.0.lock().map_err(e)?;
     c.execute("DELETE FROM local_sources WHERE id = ?1", params![id]).map_err(e)?;
     Ok(())
+}
+
+#[tauri::command]
+fn update_source(
+    db: State<Db>,
+    id: i64,
+    name: String,
+    base_path: String,
+    pattern: String,
+    role: String,
+    opacity: f64,
+    max_zoom: i64,
+    attribution: String,
+    api_type: String,
+    tile_size: i64,
+    layer_name: String,
+    style: String,
+) -> Res<()> {
+    let c = db.0.lock().map_err(e)?;
+    c.execute(
+        "UPDATE local_sources
+         SET name = ?1, base_path = ?2, pattern = ?3, role = ?4,
+             opacity = ?5, max_zoom = ?6, attribution = ?7, api_type = ?8,
+             tile_size = ?9, layer_name = ?10, style = ?11
+         WHERE id = ?12",
+        params![name, base_path, pattern, role, opacity, max_zoom, attribution, api_type, tile_size, layer_name, style, id],
+    )
+    .map_err(e)?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn fetch_lantmateriet_tile(db: State<'_, Db>, z: u32, x: u32, y: i32) -> Res<Vec<u8>> {
+    let (username, password): (String, String) = {
+        let c = db.0.lock().map_err(e)?;
+        c.query_row(
+            "SELECT
+                COALESCE((SELECT value FROM settings WHERE key='lantmaterietUsername'), ''),
+                COALESCE((SELECT value FROM settings WHERE key='lantmaterietPassword'), '')",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(e)?
+    };
+    if username.is_empty() || password.is_empty() {
+        return Err("Lantmäteriet-tunnukset puuttuvat".into());
+    }
+
+    let url = format!(
+        "https://maps.lantmateriet.se/open/topowebb-ccby/v1/wmts/1.0.0/topowebb/default/3857/{z}/{y}/{x}.png"
+    );
+    let cache = LANTMATERIET_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(mut entries) = cache.lock() {
+        if let Some((created, bytes)) = entries.get(&url) {
+            if created.elapsed() < Duration::from_secs(300) {
+                return Ok(bytes.clone());
+            }
+        }
+        entries.retain(|_, (created, _)| created.elapsed() < Duration::from_secs(600));
+    }
+
+    let client = LANTMATERIET_ASYNC_CLIENT.get_or_init(reqwest::Client::new);
+    let response = client
+        .get(&url)
+        .basic_auth(username, Some(password))
+        .send()
+        .await
+        .map_err(e)?;
+    if !response.status().is_success() {
+        return Err(format!("Lantmäteriet palautti HTTP {}", response.status()));
+    }
+    let bytes = response.bytes().await.map_err(e)?.to_vec();
+    if let Ok(mut entries) = cache.lock() {
+        if entries.len() >= 512 {
+            entries.clear();
+        }
+        entries.insert(url, (Instant::now(), bytes.clone()));
+    }
+    Ok(bytes)
 }
 
 // ---------- Merkinnät ja mittaukset ----------
@@ -153,6 +297,24 @@ fn add_feature(
 fn delete_feature(db: State<Db>, id: i64) -> Res<()> {
     let c = db.0.lock().map_err(e)?;
     c.execute("DELETE FROM user_features WHERE id = ?1", params![id]).map_err(e)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn update_feature(
+    db: State<Db>,
+    id: i64,
+    title: String,
+    description: Option<String>,
+    feature_type: String,
+    geojson: String,
+) -> Res<()> {
+    let c = db.0.lock().map_err(e)?;
+    c.execute(
+        "UPDATE user_features SET title = ?1, description = ?2, feature_type = ?3, geojson = ?4 WHERE id = ?5",
+        params![title, description, feature_type, geojson, id],
+    )
+    .map_err(e)?;
     Ok(())
 }
 
@@ -252,8 +414,19 @@ fn read_lantmateriet_tile(app: &AppHandle, path: &str) -> Result<(Vec<u8>, &'sta
     let url = format!(
         "https://maps.lantmateriet.se/open/topowebb-ccby/v1/wmts/1.0.0/topowebb/default/3857/{z}/{y}/{x}.png"
     );
-    let response = reqwest::blocking::Client::new()
-        .get(url)
+    let cache = LANTMATERIET_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(mut entries) = cache.lock() {
+        if let Some((created, bytes)) = entries.get(&url) {
+            if created.elapsed() < Duration::from_secs(300) {
+                return Ok((bytes.clone(), "image/png"));
+            }
+        }
+        entries.retain(|_, (created, _)| created.elapsed() < Duration::from_secs(600));
+    }
+
+    let client = LANTMATERIET_CLIENT.get_or_init(reqwest::blocking::Client::new);
+    let response = client
+        .get(&url)
         .basic_auth(username, Some(password))
         .send()
         .map_err(e)?;
@@ -261,6 +434,12 @@ fn read_lantmateriet_tile(app: &AppHandle, path: &str) -> Result<(Vec<u8>, &'sta
         return Err(format!("Lantmäteriet palautti HTTP {}", response.status()));
     }
     let bytes = response.bytes().map_err(e)?.to_vec();
+    if let Ok(mut entries) = cache.lock() {
+        if entries.len() >= 512 {
+            entries.clear();
+        }
+        entries.insert(url, (Instant::now(), bytes.clone()));
+    }
     Ok((bytes, "image/png"))
 }
 
@@ -302,17 +481,29 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let conn = Connection::open(dir.join("app_data.db"))?;
             conn.execute_batch(SCHEMA)?;
+            let _ = conn.execute("ALTER TABLE local_sources ADD COLUMN role TEXT NOT NULL DEFAULT 'basemap'", []);
+            let _ = conn.execute("ALTER TABLE local_sources ADD COLUMN opacity REAL NOT NULL DEFAULT 1.0", []);
+            let _ = conn.execute("ALTER TABLE local_sources ADD COLUMN max_zoom INTEGER NOT NULL DEFAULT 19", []);
+            let _ = conn.execute("ALTER TABLE local_sources ADD COLUMN attribution TEXT NOT NULL DEFAULT ''", []);
+            let _ = conn.execute("ALTER TABLE local_sources ADD COLUMN api_type TEXT NOT NULL DEFAULT 'tile'", []);
+            let _ = conn.execute("ALTER TABLE local_sources ADD COLUMN tile_size INTEGER NOT NULL DEFAULT 256", []);
+            let _ = conn.execute("ALTER TABLE local_sources ADD COLUMN layer_name TEXT NOT NULL DEFAULT ''", []);
+            let _ = conn.execute("ALTER TABLE local_sources ADD COLUMN style TEXT NOT NULL DEFAULT ''", []);
             app.manage(Db(Mutex::new(conn)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,
             set_setting,
+            set_settings,
             list_sources,
             add_source,
             delete_source,
+            update_source,
+            fetch_lantmateriet_tile,
             list_features,
             add_feature,
+            update_feature,
             delete_feature
         ])
         .run(tauri::generate_context!())

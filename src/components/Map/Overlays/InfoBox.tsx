@@ -17,12 +17,17 @@ export default function InfoBox() {
 
   const [elev, setElev] = useState<number | null>(null);
   const [weather, setWeather] = useState<DetailedWeather | null>(null);
+  const [dataError, setDataError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activeCoord || !on("showElev")) return;
     const ac = new AbortController();
     const t = setTimeout(() => {
-      elevationAt(activeCoord[1], activeCoord[0], ac.signal).then(setElev).catch(() => {});
+      elevationAt(activeCoord[1], activeCoord[0], ac.signal)
+        .then((value) => { setElev(value); setDataError(null); })
+        .catch((error) => {
+          if (!ac.signal.aborted) setDataError(`Korkeustietoa ei voitu hakea: ${String(error)}`);
+        });
     }, 150);
     return () => {
       clearTimeout(t);
@@ -34,7 +39,11 @@ export default function InfoBox() {
     if (!activeCoord || !on("showWeather") || !st.owmKey) return;
     const ac = new AbortController();
     const t = setTimeout(() => {
-      fetchWeather(activeCoord[1], activeCoord[0], st.owmKey, ac.signal).then(setWeather).catch(() => {});
+      fetchWeather(activeCoord[1], activeCoord[0], st.owmKey, ac.signal)
+        .then((value) => { setWeather(value); setDataError(value ? null : "Säätietoa ei voitu hakea."); })
+        .catch((error) => {
+          if (!ac.signal.aborted) setDataError(`Säätietoa ei voitu hakea: ${String(error)}`);
+        });
     }, 500);
     return () => {
       clearTimeout(t);
@@ -48,7 +57,7 @@ export default function InfoBox() {
 
   return (
     <>
-      <div className="pointer-events-auto absolute bottom-3 left-3 z-10 min-w-64 space-y-0.5 rounded-lg bg-black/80 px-3 py-2 font-mono text-xs text-white shadow-lg backdrop-blur">
+      <div className="pointer-events-auto absolute bottom-2 left-2 right-2 z-10 max-w-[calc(100vw-1rem)] space-y-0.5 rounded-lg bg-black/80 px-3 py-2 font-mono text-xs text-white shadow-lg backdrop-blur sm:bottom-3 sm:left-3 sm:right-auto sm:min-w-64">
         <div className="text-[10px] text-blue-300 mb-1">
           Lähde: {fetchMode === "center" ? "Kartan keskipiste (Ristiain)" : "Hiiren kursori"}
         </div>
@@ -71,11 +80,12 @@ export default function InfoBox() {
             ) : "Sää: lisää OpenWeatherMap-avain asetuksista"}
           </div>
         )}
+        {dataError && <div className="mt-1 max-w-xs text-[10px] text-amber-300">{dataError}</div>}
       </div>
 
       {weatherModalOpen && weather && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-[420px] rounded-xl bg-white p-5 text-gray-800 shadow-2xl">
+          <div className="max-h-[90vh] w-[calc(100vw-1rem)] max-w-[420px] overflow-y-auto rounded-xl bg-white p-4 text-gray-800 shadow-2xl dark:bg-gray-800 dark:text-white sm:p-5">
             <div className="mb-3 flex items-center justify-between border-b pb-2">
               <h3 className="text-lg font-bold flex items-center gap-2">
                 <img className="h-8 w-8" src={`https://openweathermap.org/img/wn/${weather.icon}@2x.png`} alt="" />
@@ -86,42 +96,42 @@ export default function InfoBox() {
               </button>
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-lg">
+              <div className="flex items-center gap-2 rounded-lg bg-gray-50 p-2.5 dark:bg-gray-700">
                 <Thermometer className="text-red-500" size={18} />
                 <div>
                   <div className="text-xs text-gray-500">Lämpötila</div>
                   <div className="font-bold">{weather.temp.toFixed(1)} °C (tuntuu {weather.feelsLike.toFixed(1)} °C)</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-lg">
+              <div className="flex items-center gap-2 rounded-lg bg-gray-50 p-2.5 dark:bg-gray-700">
                 <Wind className="text-blue-500" size={18} />
                 <div>
                   <div className="text-xs text-gray-500">Tuuli</div>
                   <div className="font-bold">{weather.windSpeed} m/s ({weather.windDeg}°)</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-lg">
+              <div className="flex items-center gap-2 rounded-lg bg-gray-50 p-2.5 dark:bg-gray-700">
                 <Droplets className="text-blue-400" size={18} />
                 <div>
                   <div className="text-xs text-gray-500">Kosteus</div>
                   <div className="font-bold">{weather.humidity} %</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-lg">
+              <div className="flex items-center gap-2 rounded-lg bg-gray-50 p-2.5 dark:bg-gray-700">
                 <Gauge className="text-purple-500" size={18} />
                 <div>
                   <div className="text-xs text-gray-500">Ilmanpaine</div>
                   <div className="font-bold">{weather.pressure} hPa</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-lg">
+              <div className="flex items-center gap-2 rounded-lg bg-gray-50 p-2.5 dark:bg-gray-700">
                 <Cloud className="text-gray-500" size={18} />
                 <div>
                   <div className="text-xs text-gray-500">Pilvisyys</div>
                   <div className="font-bold">{weather.clouds} %</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 bg-gray-50 p-2.5 rounded-lg">
+              <div className="flex items-center gap-2 rounded-lg bg-gray-50 p-2.5 dark:bg-gray-700">
                 <Eye className="text-green-600" size={18} />
                 <div>
                   <div className="text-xs text-gray-500">Näkyvyys</div>

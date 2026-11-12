@@ -14,12 +14,12 @@ export interface DetailedWeather {
   cityName: string;
 }
 
-const cache = new Map<string, DetailedWeather>();
+const cache = new Map<string, { value: DetailedWeather; expires: number }>();
 
 export async function fetchWeather(lat: number, lon: number, key: string, signal?: AbortSignal): Promise<DetailedWeather | null> {
   const ck = `${lat.toFixed(2)},${lon.toFixed(2)}`;
   const hit = cache.get(ck);
-  if (hit) return hit;
+  if (hit && hit.expires > Date.now()) return hit.value;
   const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${key}&units=metric&lang=fi`;
   const r = await fetch(url, { signal });
   if (!r.ok) return null;
@@ -39,6 +39,6 @@ export async function fetchWeather(lat: number, lon: number, key: string, signal
     description: j.weather?.[0]?.description ?? "",
     cityName: j.name || "Valittu sijainti",
   };
-  cache.set(ck, w);
+  cache.set(ck, { value: w, expires: Date.now() + 300_000 });
   return w;
 }
