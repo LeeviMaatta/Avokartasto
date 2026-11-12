@@ -261,6 +261,11 @@ export default function LayerList({
                   <div className="flex min-w-0 items-center gap-1.5">
                     <Folder size={13} className="text-amber-500/80 shrink-0" />
                     <span className="truncate">{grp.name}</span>
+                    {grp.role && (
+                      <span className="rounded bg-slate-100 px-1 py-0.2 text-[9px] text-slate-500 dark:bg-zinc-800 dark:text-zinc-400 shrink-0">
+                        {grp.role === "basemap" ? "Tausta" : "Päällyke"}
+                      </span>
+                    )}
                     <span className="text-[10px] text-slate-400 dark:text-zinc-500">({grp.count})</span>
                   </div>
                   {onRestoreGroup && (

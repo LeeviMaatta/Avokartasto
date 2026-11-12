@@ -349,6 +349,16 @@ export default function SettingsModal() {
                     <input
                       type="checkbox"
                       className="h-4 w-4 rounded accent-blue-600"
+                      checked={draft.removePendingMarkerOnDblClick === "1"}
+                      onChange={(e) => setDraft({ ...draft, removePendingMarkerOnDblClick: e.target.checked ? "1" : "0" })}
+                    />
+                    <span>Poista tallentamaton merkki kaksoisklikkauksella</span>
+                  </label>
+
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded accent-blue-600"
                       checked={draft.showFullscreenControl !== "0"}
                       onChange={(e) => setDraft({ ...draft, showFullscreenControl: e.target.checked ? "1" : "0" })}
                     />
@@ -696,7 +706,7 @@ export default function SettingsModal() {
                     <select 
                       className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" 
                       value={debugDraft.position} 
-                      onChange={(e) => setDebugDraft({ ...debugDraft, position: e.target.value as DebugSettings["position"] })}
+                      onChange={(e) => setDebugDraft({ ...debugDraft, position: e.target.value as DebugSettings["position"], customPosition: null })}
                     >
                       <option value="top-left">Ylävasen</option>
                       <option value="top-right">Yläoikea</option>

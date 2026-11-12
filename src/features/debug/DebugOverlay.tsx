@@ -10,7 +10,8 @@ export default function DebugOverlay() {
   const snapshot = useDebugStore((state) => state.snapshot);
   const events = useDebugStore((state) => state.events);
   const [minimized, setMinimized] = useState(false);
-  const [coords, setCoords] = useState<{ left: number; top: number } | null>(null);
+  const [coords, setCoords] = useState<{ left: number; top: number } | null>(settings.customPosition ?? null);
+  const coordsRef = useRef<{ left: number; top: number } | null>(coords);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{
     startX: number;
@@ -19,11 +20,14 @@ export default function DebugOverlay() {
     startTop: number;
     width: number;
     height: number;
+    moved: boolean;
   } | null>(null);
 
   useEffect(() => {
-    setCoords(null);
-  }, [settings.position]);
+    const next = settings.customPosition ?? null;
+    coordsRef.current = next;
+    setCoords(next);
+  }, [settings.customPosition]);
 
   useEffect(() => {
     const handlePointerMove = (e: PointerEvent) => {
@@ -31,15 +35,26 @@ export default function DebugOverlay() {
       if (!drag) return;
       const dx = e.clientX - drag.startX;
       const dy = e.clientY - drag.startY;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) drag.moved = true;
       const maxLeft = Math.max(8, window.innerWidth - drag.width - 8);
       const maxTop = Math.max(8, window.innerHeight - drag.height - 8);
-      setCoords({
+      const next = {
         left: Math.min(maxLeft, Math.max(8, drag.startLeft + dx)),
         top: Math.min(maxTop, Math.max(8, drag.startTop + dy)),
-      });
+      };
+      coordsRef.current = next;
+      setCoords(next);
     };
     const handlePointerUp = () => {
+      const drag = dragRef.current;
       dragRef.current = null;
+      if (drag?.moved && coordsRef.current) {
+        const current = useDebugStore.getState().settings;
+        void useDebugStore.getState().updateSettings({
+          ...current,
+          customPosition: coordsRef.current,
+        });
+      }
     };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
@@ -62,6 +77,7 @@ export default function DebugOverlay() {
       startTop: rect.top,
       width: rect.width,
       height: rect.height,
+      moved: false,
     };
     e.preventDefault();
   };

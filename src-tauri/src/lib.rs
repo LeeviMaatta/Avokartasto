@@ -420,7 +420,7 @@ fn seed_default_layer_groups(conn: &Connection) -> Res<()> {
         )
         .optional()
         .map_err(e)?;
-    if seeded.as_deref() == Some("1") {
+    if seeded.as_deref() == Some("2") {
         return Ok(());
     }
 
@@ -437,17 +437,29 @@ fn seed_default_layer_groups(conn: &Connection) -> Res<()> {
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
 
-    for (id, name) in [
-        ("grp-esri", "ESRI"),
-        ("grp-mml", "MML"),
-        ("grp-owm", "OpenWeatherMap"),
-        ("grp-orm", "OpenRailwayMap"),
+    groups.retain(|g| {
+        let id = g.get("id").and_then(serde_json::Value::as_str);
+        id != Some("grp-esri") && id != Some("grp-mml")
+    });
+
+    for (id, name, role) in [
+        ("grp-esri-basemap", "ESRI", "basemap"),
+        ("grp-esri-overlay", "ESRI", "overlay"),
+        ("grp-mml-basemap", "MML", "basemap"),
+        ("grp-mml-overlay", "MML", "overlay"),
+        ("grp-owm", "OpenWeatherMap", "overlay"),
+        ("grp-orm", "OpenRailwayMap", "overlay"),
     ] {
-        let has_group = groups
-            .iter()
-            .any(|g| g.get("id").and_then(serde_json::Value::as_str) == Some(id));
-        if !has_group {
-            groups.push(serde_json::json!({ "id": id, "name": name }));
+        if let Some(existing) = groups
+            .iter_mut()
+            .find(|g| g.get("id").and_then(serde_json::Value::as_str) == Some(id))
+        {
+            if let Some(obj) = existing.as_object_mut() {
+                obj.entry("role".to_string())
+                    .or_insert_with(|| serde_json::Value::String(role.to_string()));
+            }
+        } else {
+            groups.push(serde_json::json!({ "id": id, "name": name, "role": role }));
         }
     }
 
@@ -465,20 +477,24 @@ fn seed_default_layer_groups(conn: &Connection) -> Res<()> {
         .unwrap_or_default();
 
     let mut stmt = conn
-        .prepare("SELECT id, builtin_key FROM local_sources WHERE builtin_key IS NOT NULL")
+        .prepare("SELECT id, builtin_key, role FROM local_sources WHERE builtin_key IS NOT NULL")
         .map_err(e)?;
     let rows = stmt
         .query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
         })
         .map_err(e)?;
 
     for row in rows {
-        let (id, builtin_key) = row.map_err(e)?;
+        let (id, builtin_key, role) = row.map_err(e)?;
         let group_id = if builtin_key.starts_with("esri-") {
-            Some("grp-esri")
+            Some(if role == "overlay" { "grp-esri-overlay" } else { "grp-esri-basemap" })
         } else if builtin_key.starts_with("mml-") {
-            Some("grp-mml")
+            Some(if role == "overlay" { "grp-mml-overlay" } else { "grp-mml-basemap" })
         } else if builtin_key.starts_with("owm-") {
             Some("grp-owm")
         } else if builtin_key == "orm" || builtin_key.starts_with("orm-") {
@@ -487,9 +503,11 @@ fn seed_default_layer_groups(conn: &Connection) -> Res<()> {
             None
         };
         if let Some(gid) = group_id {
-            group_map
-                .entry(format!("src:{id}"))
-                .or_insert_with(|| serde_json::Value::String(gid.to_string()));
+            let key = format!("src:{id}");
+            let current = group_map.get(&key).and_then(serde_json::Value::as_str);
+            if current.is_none() || current == Some("grp-esri") || current == Some("grp-mml") {
+                group_map.insert(key, serde_json::Value::String(gid.to_string()));
+            }
         }
     }
 
@@ -498,7 +516,7 @@ fn seed_default_layer_groups(conn: &Connection) -> Res<()> {
     for (key, value) in [
         ("layerGroups", groups_json.as_str()),
         ("layerGroupMap", map_json.as_str()),
-        ("defaultLayerGroupsSeeded", "1"),
+        ("defaultLayerGroupsSeeded", "2"),
     ] {
         conn.execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)

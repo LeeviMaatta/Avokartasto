@@ -124,10 +124,10 @@ export default function LayerSwitcher() {
     setMenu(null);
   };
 
-  const createGroup = (name: string, assignLayerId?: string) => {
+  const createGroup = (name: string, assignLayerId?: string, role?: "basemap" | "overlay") => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const newGroup: LayerGroup = { id: `grp-${Date.now()}`, name: trimmed };
+    const newGroup: LayerGroup = { id: `grp-${Date.now()}`, name: trimmed, ...(role ? { role } : {}) };
     const nextGroups = [...groups, newGroup];
     setGroups(nextGroups);
     void useMapStore.getState().setSetting("layerGroups", JSON.stringify(nextGroups));
@@ -152,7 +152,7 @@ export default function LayerSwitcher() {
 
   const restoreGroup = (groupId: string) => {
     const layerIdsInGroup = Object.keys(layerGroupMap).filter((id) => layerGroupMap[id] === groupId);
-    const nextGroups = groups.map((g) => (g.id === groupId ? { id: g.id, name: g.name } : g));
+    const nextGroups = groups.map((g) => (g.id === groupId ? { id: g.id, name: g.name, ...(g.role ? { role: g.role } : {}) } : g));
     setGroups(nextGroups);
     void useMapStore.getState().setSetting("layerGroups", JSON.stringify(nextGroups));
     if (layerIdsInGroup.length > 0) {
@@ -271,6 +271,7 @@ export default function LayerSwitcher() {
     .map((g) => ({
       id: g.id,
       name: g.name,
+      role: g.role,
       count: Object.values(layerGroupMap).filter((gid) => gid === g.id).length,
     }));
   const visibleBasemaps = allBasemaps.filter((layer) => !hiddenLayers.includes(layer.id)) as LayerListItem[];
@@ -783,7 +784,9 @@ export default function LayerSwitcher() {
                     {!layerGroupMap[menu.id] && <Check size={13} className="text-blue-600 dark:text-blue-400 shrink-0" />}
                   </button>
 
-                  {groups.map((group) => {
+                  {groups
+                    .filter((group) => !group.role || group.role === (menu.overlay ? "overlay" : "basemap"))
+                    .map((group) => {
                     const isSelected = layerGroupMap[menu.id] === group.id;
                     return (
                       <button
@@ -812,7 +815,7 @@ export default function LayerSwitcher() {
                           onChange={(e) => setNewGroupName(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
-                              createGroup(newGroupName, menu.id);
+                              createGroup(newGroupName, menu.id, menu.overlay ? "overlay" : "basemap");
                               setNewGroupName("");
                               setNewGroupModalOpen(false);
                             } else if (e.key === "Escape") {
@@ -832,7 +835,7 @@ export default function LayerSwitcher() {
                             type="button"
                             className="rounded bg-blue-600 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-blue-700"
                             onClick={() => {
-                              createGroup(newGroupName, menu.id);
+                              createGroup(newGroupName, menu.id, menu.overlay ? "overlay" : "basemap");
                               setNewGroupName("");
                               setNewGroupModalOpen(false);
                             }}

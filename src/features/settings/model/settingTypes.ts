@@ -24,6 +24,7 @@ export type SettingKey =
   | "areaUnit"
   | "enableRotation"
   | "enableDoubleClickZoom"
+  | "removePendingMarkerOnDblClick"
   | "showSunTimes"
   | "copyCoordsOnClick"
   | "coordFormat"

@@ -14,6 +14,7 @@ export type DebugPosition = "top-left" | "top-right" | "bottom-left" | "bottom-r
 export interface DebugSettings {
   enabled: boolean;
   position: DebugPosition;
+  customPosition?: { left: number; top: number } | null;
   opacity: number;
   fontSize: "small" | "medium";
   compactMode: boolean;
@@ -120,9 +121,15 @@ export function parseDebugSettings(raw: string | undefined): DebugSettings {
   if (!raw) return DEFAULT_DEBUG_SETTINGS;
   try {
     const parsed = JSON.parse(raw) as Partial<DebugSettings>;
+    const cp = parsed.customPosition;
+    const validCustomPos =
+      cp && typeof cp.left === "number" && Number.isFinite(cp.left) && typeof cp.top === "number" && Number.isFinite(cp.top)
+        ? { left: cp.left, top: cp.top }
+        : null;
     return {
       ...DEFAULT_DEBUG_SETTINGS,
       ...parsed,
+      customPosition: validCustomPos,
       categories: { ...DEFAULT_DEBUG_SETTINGS.categories, ...(parsed.categories ?? {}) },
       values: { ...DEFAULT_DEBUG_SETTINGS.values, ...(parsed.values ?? {}) },
     };

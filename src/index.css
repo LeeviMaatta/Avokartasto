@@ -55,8 +55,8 @@ body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Ro
   margin: 0 !important;
   pointer-events: auto;
 }
-.map-bottom-right .ol-attribution { order: 0; }
-.map-bottom-right .ol-scale-line { order: 1; }
+.map-bottom-right .ol-scale-line { order: 0; }
+.map-bottom-right .ol-attribution { order: 1; }
 .map-bottom-right .ol-overviewmap { order: 2; }
 .map-bottom-right .ol-zoom { order: 3; }
 .map-bottom-right .map-geoloc-btn { order: 4; }

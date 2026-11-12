@@ -21,6 +21,7 @@ export const SETTING_TOGGLES: [string, string][] = [
   ["darkMapTiles", "Käytä tummaa tilaa myös karttapohjille (Yökartta)"],
   ["enableRotation", "Salli kartan pyörittäminen"],
   ["enableDoubleClickZoom", "Zoomaa kaksoisklikkauksella"],
+  ["removePendingMarkerOnDblClick", "Poista tallentamaton merkki kaksoisklikkauksella"],
   ["kineticPanning", "Sulava kartan liukuminen (Inertia)"],
   ["showSegmentLengths", "Näytä mittausviivan osapituudet"],
   ["showSunTimes", "Auringon nousu- ja laskuajat"],

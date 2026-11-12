@@ -340,6 +340,34 @@ export default function MapContainer() {
       }
     });
 
+    map.on("dblclick", (e) => {
+      if (e.originalEvent instanceof MouseEvent && e.originalEvent.button !== 0) return;
+      if (useMapStore.getState().settings.removePendingMarkerOnDblClick !== "1") return;
+      const pending = pendingMarkerFeature.current;
+      if (!pending) return;
+      const geom = pending.getGeometry();
+      let isHit = Boolean(
+        map.forEachFeatureAtPixel(
+          e.pixel,
+          (feat) => (feat === pending ? feat : undefined),
+          { hitTolerance: 16 },
+        ),
+      );
+      if (!isHit && geom instanceof Point) {
+        const pinPixel = map.getPixelFromCoordinate(geom.getCoordinates());
+        if (pinPixel) {
+          const dx = e.pixel[0] - pinPixel[0];
+          const dy = e.pixel[1] - pinPixel[1];
+          isHit = Math.abs(dx) <= 20 && dy >= -36 && dy <= 12;
+        }
+      }
+      if (isHit) {
+        useMapStore.setState({ pendingMarker: null, markerEditorOpen: false });
+        e.preventDefault();
+        return false;
+      }
+    });
+
     // Oikea klikkaus mittausviivalla
     const viewport = map.getViewport();
     const handleContextMenu = (e: MouseEvent) => {
@@ -411,6 +439,11 @@ export default function MapContainer() {
           void persistSetting("lastMapZoom", String(zoom));
         }
       }
+      map.getControls().getArray().slice().forEach((control) => map.removeControl(control));
+      scaleLineRef.current = null;
+      rotateControlRef.current = null;
+      fullscreenControlRef.current = null;
+      overviewMapControlRef.current = null;
       map.setTarget(undefined);
       mapRef.current = null;
       setDebugMap(null);

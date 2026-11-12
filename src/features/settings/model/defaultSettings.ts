@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showGeolocation: "1",
   enableRotation: "1",
   enableDoubleClickZoom: "0",
+  removePendingMarkerOnDblClick: "1",
   kineticPanning: "1",
   showSegmentLengths: "1",
   areaUnit: "auto",

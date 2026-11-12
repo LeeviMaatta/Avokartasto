@@ -4,6 +4,7 @@ import type { LocalSource } from "../../../infrastructure/tauriBridge";
 export type LayerGroup = {
   id: string;
   name: string;
+  role?: "basemap" | "overlay";
   hidden?: boolean;
 };
 
@@ -16,6 +17,7 @@ export type HiddenLayerItem = {
 export type HiddenGroupItem = {
   id: string;
   name: string;
+  role?: "basemap" | "overlay";
   count: number;
 };
 
