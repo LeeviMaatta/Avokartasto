@@ -411,6 +411,105 @@ fn seed_default_sources(conn: &Connection) -> Res<()> {
     Ok(())
 }
 
+fn seed_default_layer_groups(conn: &Connection) -> Res<()> {
+    let seeded: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'defaultLayerGroupsSeeded'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(e)?;
+    if seeded.as_deref() == Some("1") {
+        return Ok(());
+    }
+
+    let raw_groups: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'layerGroups'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(e)?;
+    let mut groups: Vec<serde_json::Value> = raw_groups
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
+
+    for (id, name) in [
+        ("grp-esri", "ESRI"),
+        ("grp-mml", "MML"),
+        ("grp-owm", "OpenWeatherMap"),
+        ("grp-orm", "OpenRailwayMap"),
+    ] {
+        let has_group = groups
+            .iter()
+            .any(|g| g.get("id").and_then(serde_json::Value::as_str) == Some(id));
+        if !has_group {
+            groups.push(serde_json::json!({ "id": id, "name": name }));
+        }
+    }
+
+    let raw_map: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'layerGroupMap'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(e)?;
+    let mut group_map: serde_json::Map<String, serde_json::Value> = raw_map
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
+
+    let mut stmt = conn
+        .prepare("SELECT id, builtin_key FROM local_sources WHERE builtin_key IS NOT NULL")
+        .map_err(e)?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(e)?;
+
+    for row in rows {
+        let (id, builtin_key) = row.map_err(e)?;
+        let group_id = if builtin_key.starts_with("esri-") {
+            Some("grp-esri")
+        } else if builtin_key.starts_with("mml-") {
+            Some("grp-mml")
+        } else if builtin_key.starts_with("owm-") {
+            Some("grp-owm")
+        } else if builtin_key == "orm" || builtin_key.starts_with("orm-") {
+            Some("grp-orm")
+        } else {
+            None
+        };
+        if let Some(gid) = group_id {
+            group_map
+                .entry(format!("src:{id}"))
+                .or_insert_with(|| serde_json::Value::String(gid.to_string()));
+        }
+    }
+
+    let groups_json = serde_json::to_string(&groups).map_err(e)?;
+    let map_json = serde_json::to_string(&group_map).map_err(e)?;
+    for (key, value) in [
+        ("layerGroups", groups_json.as_str()),
+        ("layerGroupMap", map_json.as_str()),
+        ("defaultLayerGroupsSeeded", "1"),
+    ] {
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )
+        .map_err(e)?;
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct LocalSource {
     id: i64,
@@ -1242,6 +1341,7 @@ pub fn run() {
             ensure_user_feature_column(&conn, "image_data", "TEXT")
                 .map_err(std::io::Error::other)?;
             seed_default_sources(&conn).map_err(std::io::Error::other)?;
+            seed_default_layer_groups(&conn).map_err(std::io::Error::other)?;
             app.manage(Db(Mutex::new(conn)));
             Ok(())
         })

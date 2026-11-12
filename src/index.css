@@ -4,15 +4,11 @@ html, body, #root { height: 100%; margin: 0; }
 body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 
 /* OpenLayers controls default styling */
-.ol-zoom { top: auto; bottom: 8.5rem; left: auto; right: .75rem; }
 .ol-control button { background: rgb(255 255 255 / 0.95); color: #1f2937; }
 .dark .ol-control button { background: rgb(9 9 11 / 0.95); color: white; }
 
 /* ScaleLine styling */
 .ol-scale-line {
-  bottom: 0.75rem;
-  left: auto;
-  right: 0.75rem;
   background: rgba(255, 255, 255, 0.9);
   border-radius: 6px;
   padding: 3px 8px;
@@ -44,12 +40,22 @@ body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Ro
 }
 
 /* Bottom-right dynamic stack for enabled map controls */
-.map-bottom-right > * {
+.map-bottom-right > *,
+.map-bottom-right .ol-control,
+.map-bottom-right .ol-scale-line,
+.map-bottom-right .ol-overviewmap,
+.map-bottom-right .ol-zoom,
+.map-bottom-right .ol-full-screen,
+.map-bottom-right .ol-attribution {
   position: static !important;
-  inset: auto !important;
+  top: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  left: auto !important;
   margin: 0 !important;
   pointer-events: auto;
 }
+.map-bottom-right .ol-attribution { order: 0; }
 .map-bottom-right .ol-scale-line { order: 1; }
 .map-bottom-right .ol-overviewmap { order: 2; }
 .map-bottom-right .ol-zoom { order: 3; }

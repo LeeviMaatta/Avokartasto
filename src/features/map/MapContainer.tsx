@@ -16,6 +16,7 @@ import { useMapStore } from "../../store/mapStore";
 import { setSetting as persistSetting } from "../../infrastructure/tauriBridge";
 import { elevationBatch } from "../location-info/elevationService";
 import Zoom from "ol/control/Zoom";
+import Attribution from "ol/control/Attribution";
 import ScaleLine from "ol/control/ScaleLine";
 import Rotate from "ol/control/Rotate";
 import { defaults as defaultControls } from "ol/control";
@@ -138,7 +139,8 @@ export default function MapContainer() {
 
     const map = new OlMap({
       target: el.current!,
-      controls: defaultControls({ rotate: false, zoom: false }).extend([
+      controls: defaultControls({ rotate: false, zoom: false, attribution: false }).extend([
+        new Attribution({ target: bottomRightRef.current ?? undefined, collapsible: true }),
         new Zoom({ target: bottomRightRef.current ?? undefined }),
       ]),
       view: new View({ center: fromLonLat([24.94, 60.17]), zoom: 10, maxZoom: 21, enableRotation: settings.enableRotation !== "0" }),
