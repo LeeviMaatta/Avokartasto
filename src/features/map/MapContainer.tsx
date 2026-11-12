@@ -18,6 +18,7 @@ import { elevationBatch } from "../location-info/elevationService";
 import Zoom from "ol/control/Zoom";
 import ScaleLine from "ol/control/ScaleLine";
 import Rotate from "ol/control/Rotate";
+import { defaults as defaultControls } from "ol/control";
 import FullScreen from "ol/control/FullScreen";
 import OverviewMap from "ol/control/OverviewMap";
 import TileLayer from "ol/layer/Tile";
@@ -39,6 +40,7 @@ import { recordDebugEvent, setDebugMap } from "../debug/debugMonitor";
 
 export default function MapContainer() {
   const el = useRef<HTMLDivElement>(null);
+  const bottomRightRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<OlMap | null>(null);
   const overlayRefs = useRef<BaseLayer[]>([]);
   const measureSrc = useRef(new VectorSource());
@@ -136,6 +138,9 @@ export default function MapContainer() {
 
     const map = new OlMap({
       target: el.current!,
+      controls: defaultControls({ rotate: false, zoom: false }).extend([
+        new Zoom({ target: bottomRightRef.current ?? undefined }),
+      ]),
       view: new View({ center: fromLonLat([24.94, 60.17]), zoom: 10, maxZoom: 21, enableRotation: settings.enableRotation !== "0" }),
       layers: [
         new VectorLayer({
@@ -151,8 +156,11 @@ export default function MapContainer() {
                 }),
               });
             }
+            const { uiStyle, theme } = useMapStore.getState().settings;
+            const resolvedUiStyle = uiStyle === "classic" || uiStyle === "retro" ? uiStyle : "modern";
+            const resolvedTheme = theme === "dark" ? "dark" : "light";
             return feature.getGeometry()?.getType() === "Point"
-              ? markerStyle(String(feature.get("color") || "#dc2626"))
+              ? markerStyle(String(feature.get("color") || "#dc2626"), resolvedUiStyle, resolvedTheme)
               : lineStyle(String(feature.get("color") || "#dc2626"));
           },
           zIndex: 90,
@@ -273,6 +281,7 @@ export default function MapContainer() {
         const saved = featSrc.current.hasFeature(feature) && feature !== pendingMarkerFeature.current;
         const savedId = saved ? Number(feature.get("id")) : null;
         if (saved && geom instanceof Point) {
+          measureSrc.current.clear();
           useMapStore.setState({
             selectedFeature: {
               id: savedId!,
@@ -283,6 +292,7 @@ export default function MapContainer() {
               folder_id: feature.get("folder_id") ?? null,
               geojson: new GeoJSON().writeGeometry(geom, { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" }),
             },
+            editingFeatureId: null,
             measure: null,
             profile: null,
             profileVisible: false,
@@ -295,12 +305,20 @@ export default function MapContainer() {
         const kind = geom instanceof Polygon ? "area" : "distance";
         const length = kind === "area" ? getArea(geom, { projection: "EPSG:3857" }) : getLength(geom, { projection: "EPSG:3857" });
         const geojson = new GeoJSON().writeGeometry(geom, { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" });
+        if (saved && savedId !== null) {
+          measureSrc.current.clear();
+          const editable = new Feature({ geometry: geom.clone() });
+          editable.set("id", savedId);
+          measureSrc.current.addFeature(editable);
+        }
         useMapStore.setState({
+          pendingMarker: null,
+          markerEditorOpen: false,
           measure: { length, geojson, kind },
           profile: null,
           profileVisible: false,
           profileError: null,
-          tool: "measure",
+          editingFeatureId: saved && savedId !== null ? savedId : null,
           selectedFeature: saved && savedId !== null
             ? {
                 id: savedId,
@@ -414,7 +432,7 @@ export default function MapContainer() {
     if (!map) return;
     const showScale = settings.showScaleLine !== "0";
     if (showScale && !scaleLineRef.current) {
-      const scaleLine = new ScaleLine({ units: "metric" });
+      const scaleLine = new ScaleLine({ units: "metric", target: bottomRightRef.current ?? undefined });
       scaleLineRef.current = scaleLine;
       map.addControl(scaleLine);
     } else if (!showScale && scaleLineRef.current) {
@@ -436,17 +454,70 @@ export default function MapContainer() {
     const map = mapRef.current;
     if (!map) return;
     const showCompass = settings.showCompass !== "0";
-    if (showCompass && !rotateControlRef.current) {
+    if (!showCompass) {
+      if (rotateControlRef.current) {
+        map.removeControl(rotateControlRef.current);
+        rotateControlRef.current = null;
+      }
+      return;
+    }
+
+    const view = map.getView();
+    const compassEl = document.createElement("span");
+    compassEl.className = "ol-compass inline-flex items-center justify-center";
+    compassEl.style.transformOrigin = "center";
+    compassEl.style.transition = "transform 75ms linear";
+    compassEl.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-opacity="0.22" stroke-width="1.2"/>
+      <path d="M12 2.2v1.6M12 20.2v1.6M2.2 12h1.6M20.2 12h1.6" stroke="currentColor" stroke-opacity="0.45" stroke-width="1.2" stroke-linecap="round"/>
+      <polygon points="12,3.5 14.8,12 12,10.6 9.2,12" fill="#ef4444"/>
+      <polygon points="12,20.5 14.8,12 12,13.4 9.2,12" fill="#94a3b8"/>
+      <circle cx="12" cy="12" r="1.4" fill="currentColor"/>
+    </svg>`;
+
+    const syncCompassRotation = () => {
+      compassEl.style.transform = `rotate(${view.getRotation()}rad)`;
+    };
+    syncCompassRotation();
+    view.on("change:rotation", syncCompassRotation);
+
+    if (!rotateControlRef.current) {
       const rotate = new Rotate({
         autoHide: false,
-        tipLabel: "Palauta pohjoinen ylös",
+        tipLabel: "Palauta pohjoinen ylös ja keskitä kartta",
+        label: compassEl,
+        target: document.getElementById("map-compass-slot") ?? bottomRightRef.current ?? undefined,
+        resetNorth: () => {
+          const currentSettings = useMapStore.getState().settings;
+          let targetCenter: [number, number] = [24.94, 60.17];
+          try {
+            const parsed = currentSettings.initialMapCenter ? JSON.parse(currentSettings.initialMapCenter) : null;
+            if (Array.isArray(parsed) && parsed.length === 2 && parsed.every((n) => typeof n === "number" && Number.isFinite(n))) {
+              targetCenter = [parsed[0], parsed[1]];
+            }
+          } catch {
+            // Käytetään oletuskeskipistettä
+          }
+          const initialZoom = Number(currentSettings.initialMapZoom);
+          view.animate({
+            center: fromLonLat(targetCenter),
+            rotation: 0,
+            ...(Number.isFinite(initialZoom) && currentSettings.initialMapZoom ? { zoom: Math.max(0, Math.min(21, initialZoom)) } : {}),
+            duration: 350,
+          });
+        },
       });
       rotateControlRef.current = rotate;
       map.addControl(rotate);
-    } else if (!showCompass && rotateControlRef.current) {
-      map.removeControl(rotateControlRef.current);
-      rotateControlRef.current = null;
     }
+
+    return () => {
+      view.un("change:rotation", syncCompassRotation);
+      if (rotateControlRef.current) {
+        map.removeControl(rotateControlRef.current);
+        rotateControlRef.current = null;
+      }
+    };
   }, [settings.showCompass]);
 
   useEffect(() => {
@@ -486,7 +557,7 @@ export default function MapContainer() {
     if (!map) return;
     const show = settings.showFullscreenControl !== "0";
     if (show && !fullscreenControlRef.current) {
-      const fs = new FullScreen({ tipLabel: "Koko ruutu (F11)" });
+      const fs = new FullScreen({ tipLabel: "Koko ruutu (F11)", target: bottomRightRef.current ?? undefined });
       fullscreenControlRef.current = fs;
       map.addControl(fs);
     } else if (!show && fullscreenControlRef.current) {
@@ -506,6 +577,7 @@ export default function MapContainer() {
         collapseLabel: "\u00BB",
         label: "\u00AB",
         layers: [new TileLayer({ source: new OSM() })],
+        target: bottomRightRef.current ?? undefined,
       });
       overviewMapControlRef.current = ov;
       map.addControl(ov);
@@ -523,7 +595,7 @@ export default function MapContainer() {
     if (dragPan) {
       map.removeInteraction(dragPan);
       const newDragPan = new DragPan({
-        kinetic: enableKinetic ? new Kinetic(-0.005, 0.05, 100) : undefined,
+        kinetic: enableKinetic ? new Kinetic(-0.0055, 0.015, 140) : undefined,
       });
       map.addInteraction(newDragPan);
     }
@@ -605,6 +677,10 @@ export default function MapContainer() {
   }, [settings]);
 
   useEffect(() => {
+    featSrc.current.changed();
+  }, [settings.uiStyle, settings.theme]);
+
+  useEffect(() => {
     if (pendingMarkerFeature.current) {
       featSrc.current.removeFeature(pendingMarkerFeature.current);
       pendingMarkerFeature.current = null;
@@ -674,6 +750,7 @@ export default function MapContainer() {
     profileRequest,
     tool,
     measurementType: settings.measurementType ?? "distance",
+    editingFeatureId,
   });
 
   return (
@@ -693,19 +770,23 @@ export default function MapContainer() {
         </div>
       )}
 
-      {settings.showGeolocation !== "0" && (
-        <div className="absolute right-3 bottom-[13.5rem] z-10" style={{ opacity: overlayOpacity }}>
+      <div
+        ref={bottomRightRef}
+        className="map-bottom-right pointer-events-none absolute bottom-3 right-3 z-10 flex flex-col-reverse items-end gap-2"
+        style={{ opacity: overlayOpacity }}
+      >
+        {settings.showGeolocation !== "0" && (
           <button
             type="button"
-            className="flex h-7 w-7 items-center justify-center rounded-sm border border-slate-300 bg-white/95 text-slate-700 shadow-md backdrop-blur transition hover:bg-slate-100 hover:text-blue-600 dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:hover:text-blue-400"
+            className="map-geoloc-btn flex h-7 w-7 items-center justify-center rounded-sm border border-slate-300 bg-white/95 text-slate-700 shadow-md backdrop-blur transition hover:bg-slate-100 hover:text-blue-600 dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:hover:text-blue-400"
             onClick={handleLocateUser}
             title="Oma sijainti (paikanna)"
             aria-label="Paikanna oma sijainti"
           >
             <LocateFixed size={16} className={locating ? "animate-spin text-blue-600" : ""} />
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       <FeatureContextMenu value={contextMenu} opacity={overlayOpacity} measureSource={measureSrc.current} profileRequest={profileRequest} onClose={() => setContextMenu(null)} />
     </div>

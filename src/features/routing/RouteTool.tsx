@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { useMapStore } from "../../store/mapStore";
+import { usePersistedBool } from "../settings/model/persistedUiState";
 import {
   calculateRoute,
   formatRouteDistance,
@@ -57,7 +58,7 @@ export default function RouteTool() {
   const [searching, setSearching] = useState(false);
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [routeError, setRouteError] = useState<string | null>(null);
-  const [stepsOpen, setStepsOpen] = useState(true);
+  const [stepsOpen, toggleStepsOpen] = usePersistedBool("routeStepsOpen", true);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
 
   const searchAbortRef = useRef<AbortController | null>(null);
@@ -474,7 +475,7 @@ export default function RouteTool() {
               </button>
               <button
                 type="button"
-                onClick={() => setStepsOpen((prev) => !prev)}
+                onClick={toggleStepsOpen}
                 className="rounded-lg p-1 text-slate-500 hover:bg-slate-200/70 dark:text-zinc-400 dark:hover:bg-zinc-800 transition"
                 title={stepsOpen ? "Piilota ohjeet" : "Näytä ohjeet"}
               >

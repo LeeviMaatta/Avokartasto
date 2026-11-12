@@ -9,6 +9,7 @@ import { requestConfirmation } from "../../../app/confirmation";
 import { exportMeasurement as saveMeasurementFile } from "../../measurements/domain/measurementExport";
 import { formatArea, formatDistance } from "../../measurements/domain/measurementFormatting";
 import MarkerEditor, { type MarkerDraft, type MarkerFolder } from "../../measurements/components/MarkerEditor";
+import { resolveNearestPlaceName } from "../sources/reverseGeocode";
 
 const emptyMarkerDraft = (geojson: string, folderId = ""): MarkerDraft => ({
   title: "",
@@ -53,6 +54,12 @@ export default function MeasureTool() {
   useEffect(() => {
     if (selectedFeature?.kind === "measurement") setTitle(selectedFeature.title);
   }, [selectedFeature]);
+
+  useEffect(() => {
+    if (msg !== "Tallennettu") return;
+    const timer = window.setTimeout(() => setMsg(""), 2500);
+    return () => window.clearTimeout(timer);
+  }, [msg]);
 
   // LayerSwitcher lähettää muokattavan merkin tänne, jotta kaikki tallennus
   // ja muokkaus tapahtuu samassa kartan yläreunan työkalupalkissa.
@@ -104,7 +111,6 @@ export default function MeasureTool() {
       setTitle(feature.title);
       setMsg("");
       useMapStore.setState({
-        tool: "measure",
         editingFeatureId: feature.id,
         measure: { length, geojson: feature.geojson, kind },
         profile: null,
@@ -126,12 +132,16 @@ export default function MeasureTool() {
   }, []);
 
   const saveMarker = async () => {
-    if (!markerDraft || !markerDraft.title.trim() || markerBusy) return;
+    if (!markerDraft || markerBusy) return;
     setMarkerBusy(true);
     setMsg("");
     try {
+      const offline = useMapStore.getState().settings.dataFetchMode === "offline";
+      const resolvedTitle =
+        markerDraft.title.trim() ||
+        (await resolveNearestPlaceName(markerDraft.geojson, "Merkki", offline));
       const args = [
-        markerDraft.title.trim(),
+        resolvedTitle,
         markerDraft.description.trim() || null,
         "POINT",
         markerDraft.geojson,
@@ -237,11 +247,15 @@ export default function MeasureTool() {
     if (!measure) return;
     setMsg("");
     try {
+      const offline = useMapStore.getState().settings.dataFetchMode === "offline";
+      const resolvedTitle =
+        title.trim() ||
+        (await resolveNearestPlaceName(measure.geojson, "Mittaus", offline));
       const featureType = measure.kind === "area" ? "POLYGON" : "LINESTRING";
       if (editingFeatureId) {
         await updateFeature(
           editingFeatureId,
-          title.trim() || "Mittaus",
+          resolvedTitle,
           selectedFeature?.description ?? null,
           featureType,
           measure.geojson,
@@ -249,12 +263,13 @@ export default function MeasureTool() {
           selectedFeature?.color || "#dc2626",
         );
       } else {
-        await addFeature(title.trim() || "Mittaus", null, featureType, measure.geojson);
+        await addFeature(resolvedTitle, null, featureType, measure.geojson);
       }
       bumpFeatures();
       window.dispatchEvent(new Event("clear-unsaved-measurements"));
       useMapStore.setState({ measure: null, profile: null, profileVisible: false, profileError: null, editingFeatureId: null, selectedFeature: null });
       setTitle("");
+      setMsg("Tallennettu");
     } catch (error) {
       setMsg(`Tallennus epäonnistui: ${String(error)}`);
     }
@@ -265,6 +280,16 @@ export default function MeasureTool() {
     useMapStore.setState({ measure: null, profile: null, profileVisible: false, profileError: null, editingFeatureId: null, selectedFeature: null });
     setMsg("");
     setTitle("");
+  };
+
+  const deleteCurrentMeasurement = async () => {
+    if (editingFeatureId !== null) {
+      const label = title.trim() || selectedFeature?.title || "Mittaus";
+      if (!(await requestConfirmation(`Haluatko varmasti poistaa mittauksen "${label}"?`))) return;
+      await deleteFeature(editingFeatureId);
+      bumpFeatures();
+    }
+    clearUnsaved();
   };
 
   const closeMeasureTool = () => {
@@ -305,7 +330,7 @@ export default function MeasureTool() {
           <button className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white shadow hover:bg-blue-700 transition" onClick={() => void save()}>
             <Save size={13} /> {editingFeatureId ? "Tallenna muutokset" : "Tallenna"}
           </button>
-          <button className="flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1 text-xs font-medium text-white shadow hover:bg-red-700 transition" onClick={clearUnsaved} title="Poista mittaus">
+          <button className="flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1 text-xs font-medium text-white shadow hover:bg-red-700 transition" onClick={() => void deleteCurrentMeasurement()} title="Poista mittaus">
             <Trash2 size={13} /> Poista
           </button>
           <button

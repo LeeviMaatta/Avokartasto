@@ -3,7 +3,9 @@ import OlMap from "ol/Map";
 import BaseLayer from "ol/layer/Base";
 import TileLayer from "ol/layer/Tile";
 import VectorTileLayer from "ol/layer/VectorTile";
+import TileWMS from "ol/source/TileWMS";
 import { buildLayer, sourceId } from "../layers";
+import { buildCopernicusWmsParams } from "../sources/copernicusParams";
 import type { LocalSource } from "../../../infrastructure/tauriBridge";
 import { recordDebugEvent, recordTileEvent, recordTileStart } from "../../debug/debugMonitor";
 
@@ -53,8 +55,34 @@ export function useMapLayers({ mapRef, overlayRefs, basemap, overlays, overlayOr
     settings.lantmaterietUsername ?? "",
     settings.lantmaterietPassword ?? "",
     settings.owmKey ?? "",
+    settings.copernicusInstanceId ?? "",
     settings.tileCache ?? "1",
     settings.layerViewSettings ?? "{}",
+  ]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const nextParams = buildCopernicusWmsParams(settings);
+    map.getLayers().getArray().forEach((item) => {
+      if (!item.get("isCopernicus") || !(item instanceof TileLayer)) return;
+      const src = item.getSource();
+      if (src instanceof TileWMS) {
+        src.updateParams(nextParams);
+      }
+    });
+  }, [
+    mapRef,
+    basemap,
+    overlays,
+    settings.copernicusLayerName,
+    settings.copernicusMaxCloud,
+    settings.copernicusDateMode,
+    settings.copernicusSingleDate,
+    settings.copernicusRangeStart,
+    settings.copernicusRangeEnd,
+    settings.copernicusRangeYear,
+    settings.copernicusPriority,
   ]);
 
   useEffect(() => {

@@ -24,11 +24,12 @@ import AddLayerModal, { type NewLayerSource } from "../../layers/components/AddL
 import LayerEditorModal from "../../layers/components/LayerEditorModal";
 import type { LayerViewDraft } from "../../layers/model/layerViewTypes";
 import FolderEditor from "../../markers/components/FolderEditor";
+import { usePersistedBool, usePersistedStringSet } from "../../settings/model/persistedUiState";
 import { requiredSecrets } from "../sources/resolveUrl";
 
 export default function LayerSwitcher() {
-  const [openLayers, setOpenLayers] = useState(true);
-  const [openFeatures, setOpenFeatures] = useState(true);
+  const [openLayers, toggleOpenLayers] = usePersistedBool("layersPanelOpen", true);
+  const [openFeatures, toggleOpenFeatures] = usePersistedBool("featuresPanelOpen", true);
   const basemap = useMapStore((s) => s.basemap);
   const overlays = useMapStore((s) => s.overlays);
   const overlayOrder = useMapStore((s) => s.overlayOrder);
@@ -53,7 +54,7 @@ export default function LayerSwitcher() {
   const [groupMenu, setGroupMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(null);
   const [groups, setGroups] = useState<LayerGroup[]>([]);
   const [layerGroupMap, setLayerGroupMap] = useState<Record<string, string>>({});
-  const [groupsMenuOpen, setGroupsMenuOpen] = useState(false);
+  const [groupsMenuOpen, toggleGroupsMenuOpen] = usePersistedBool("layerGroupsMenuOpen", false);
   const [newGroupModalOpen, setNewGroupModalOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [editDraft, setEditDraft] = useState<LocalSource | null>(null);
@@ -71,7 +72,7 @@ export default function LayerSwitcher() {
   const [dragging, setDragging] = useState<{ kind: "overlay" | "basemap"; id: string } | null>(null);
   const [draggingGroup, setDraggingGroup] = useState<{ role: "overlay" | "basemap"; id: string } | null>(null);
   const [folders, setFolders] = useState<MarkerFolder[]>([]);
-  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
+  const [expandedFolderIds, toggleFolderExpanded] = usePersistedStringSet("markerExpandedFolders");
   const [folderDraft, setFolderDraft] = useState("");
   const [folderEdit, setFolderEdit] = useState<MarkerFolder | null>(null);
   const [folderEditName, setFolderEditName] = useState("");
@@ -448,7 +449,6 @@ export default function LayerSwitcher() {
     const y = Math.max(10, Math.min(btnRect.top, window.innerHeight - 340));
     setGroupMenu(null);
     setMenu({ x, y, id, name, overlay, source });
-    setGroupsMenuOpen(false);
     setNewGroupModalOpen(false);
     setNewGroupName("");
   };
@@ -596,7 +596,7 @@ export default function LayerSwitcher() {
       {/* Karttatasot */}
       <div ref={containerRef} className="relative z-[70] rounded-lg bg-white/95 dark:bg-zinc-950/95 dark:text-white text-sm shadow-lg backdrop-blur">
         <div className="flex items-center justify-between px-3 py-2">
-          <button className="flex items-center gap-2 font-semibold" onClick={() => setOpenLayers(!openLayers)}>
+          <button className="flex items-center gap-2 font-semibold" onClick={toggleOpenLayers}>
             <Layers size={16} /> Karttatasot
           </button>
           <button className="rounded p-1 text-[#1671a8] hover:bg-slate-100" title="Karttatason toiminnot" onClick={(event) => {
@@ -668,17 +668,12 @@ export default function LayerSwitcher() {
         expandedFolderIds={expandedFolderIds}
         folderDraft={folderDraft}
         hiddenFeatureIds={hiddenFeatureIds}
-        onToggleOpen={() => setOpenFeatures(!openFeatures)}
+        onToggleOpen={toggleOpenFeatures}
         onToggleFolderMenu={() => setFolderMenuOpen(!folderMenuOpen)}
         onFolderDraftChange={setFolderDraft}
         onAddFolder={addFolder}
         onToggleFolder={toggleFolderVisibility}
-        onToggleFolderExpanded={(id) => setExpandedFolderIds((current) => {
-          const next = new Set(current);
-          if (next.has(id)) next.delete(id);
-          else next.add(id);
-          return next;
-        })}
+        onToggleFolderExpanded={toggleFolderExpanded}
         onRenameFolder={renameFolder}
         onRemoveFolder={removeFolder}
         onToggleFeatureVisibility={toggleFeatureVisibility}
@@ -766,7 +761,7 @@ export default function LayerSwitcher() {
               <button
                 type="button"
                 className="flex w-full items-center justify-between px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-zinc-800/70 transition"
-                onClick={() => setGroupsMenuOpen((prev) => !prev)}
+                onClick={toggleGroupsMenuOpen}
               >
                 <div className="flex items-center gap-2">
                   <Folder size={14} className="text-amber-500 shrink-0" />

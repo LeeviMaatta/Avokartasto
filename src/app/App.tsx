@@ -3,6 +3,7 @@ import { useMapStore } from "../store/mapStore";
 import MapContainer from "../features/map/MapContainer";
 import LayerSwitcher from "../features/map/controls/LayerSwitcher";
 import SearchBar from "../features/map/controls/SearchBar";
+import CopernicusControls from "../features/map/controls/CopernicusControls";
 import MeasureTool from "../features/map/controls/MeasureTool";
 import RouteTool from "../features/routing/RouteTool";
 import InfoBox from "../features/map/overlays/InfoBox";
@@ -80,6 +81,7 @@ export default function App() {
       <AppToolbar />
       <MeasureTool />
       <RouteTool />
+      <CopernicusControls />
       <Suspense fallback={null}>
         <ElevationChart />
       </Suspense>

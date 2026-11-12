@@ -3,6 +3,7 @@ export const SETTING_KEYS: [string, string][] = [
   ["lantmaterietUsername", "Lantmäteriet sähköposti (Topowebb)"],
   ["lantmaterietPassword", "Lantmäteriet salasana (Topowebb)"],
   ["owmKey", "OpenWeatherMap API-avain"],
+  ["copernicusInstanceId", "Copernicus Data Space Instance ID"],
 ];
 
 export const SETTING_TOGGLES: [string, string][] = [
@@ -42,4 +43,12 @@ export const SETTING_VALUE_KEYS = [
   "uiOverlayOpacity",
   "layerGroups",
   "layerGroupMap",
+  "copernicusLayerName",
+  "copernicusMaxCloud",
+  "copernicusDateMode",
+  "copernicusSingleDate",
+  "copernicusRangeStart",
+  "copernicusRangeEnd",
+  "copernicusRangeYear",
+  "copernicusPriority",
 ] as const;

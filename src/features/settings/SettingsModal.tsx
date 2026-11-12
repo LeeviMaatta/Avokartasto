@@ -13,6 +13,16 @@ import {
 } from "lucide-react";
 import { useMapStore } from "../../store/mapStore";
 import { SETTING_KEYS, SETTING_TOGGLES, SETTING_VALUE_KEYS } from "./model/settingFields";
+import { parseOpenSections } from "./model/persistedUiState";
+
+const DEFAULT_OPEN_SECTIONS: Record<string, boolean> = {
+  theme: true,
+  map: true,
+  coords: false,
+  measure: false,
+  api: false,
+  debug: false,
+};
 import { useDebugStore } from "../debug/debugStore";
 import { 
   DEBUG_CATEGORIES, 
@@ -30,14 +40,7 @@ export default function SettingsModal() {
   const [savedInitialView, setSavedInitialView] = useState(false);
   
   // Accordion sections
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    theme: true,
-    map: true,
-    coords: false,
-    measure: false,
-    api: false,
-    debug: false,
-  });
+  const openSections = parseOpenSections(settings.settingsOpenSections, DEFAULT_OPEN_SECTIONS);
 
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -54,7 +57,8 @@ export default function SettingsModal() {
   }, [settingsOpen, settings]);
 
   const toggleSection = (key: string) => {
-    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+    const next = { ...openSections, [key]: !openSections[key] };
+    void useMapStore.getState().setSetting("settingsOpenSections", JSON.stringify(next));
   };
 
   const close = async () => {
@@ -167,9 +171,9 @@ export default function SettingsModal() {
                     value={draft.uiStyle ?? "modern"}
                     onChange={(e) => setDraft({ ...draft, uiStyle: e.target.value })}
                   >
-                    <option value="modern">Moderni (pyöristetty, pehmeät varjot ja lasipinta)</option>
-                    <option value="classic">Vanhempi (kompakti, selkeät 4px kulmat)</option>
-                    <option value="retro">Todella vanha (90-luvun työpöytätyyli, 3D-viisteet)</option>
+                    <option value="modern">Moderni</option>
+                    <option value="classic">Klassinen</option>
+                    <option value="retro">Retro</option>
                   </select>
                 </label>
 

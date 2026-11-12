@@ -1,8 +1,12 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MapPin } from "lucide-react";
 import { Circle as CircleStyle, Fill, Icon, Stroke, Style, Text } from "ol/style";
 import Point from "ol/geom/Point";
 import LineString from "ol/geom/LineString";
 import { getLength } from "ol/sphere";
 import { formatDistance } from "../../measurements/domain/measurementFormatting";
+import type { UiStyle } from "../../settings/model/settingTypes";
 
 export const lineStyle = (color: string) =>
   new Style({
@@ -51,10 +55,35 @@ export const measurementStyle = (color: string, showSegments: boolean, units = "
   };
 };
 
-export const markerStyle = (color: string) =>
-  new Style({
+const markerStyleCache = new Map<string, Style>();
+
+function buildMarkerSvg(color: string, theme: "light" | "dark"): string {
+  const inner = theme === "dark" ? "#e4e4e7" : "#ffffff";
+  const svg = renderToStaticMarkup(
+    createElement(MapPin, {
+      size: 32,
+      color,
+      fill: color,
+      strokeWidth: 2,
+    }),
+  );
+  return svg.replace("<circle ", `<circle stroke="${inner}" `);
+}
+
+export const markerStyle = (
+  color: string,
+  _uiStyle: UiStyle = "modern",
+  theme: "light" | "dark" = "light",
+) => {
+  const key = `${color}:${theme}`;
+  const cached = markerStyleCache.get(key);
+  if (cached) return cached;
+  const style = new Style({
     image: new Icon({
-      src: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40"><path d="M16 1C8.3 1 2 7.2 2 14.8 2 25 16 39 16 39s14-14 14-24.2C30 7.2 23.7 1 16 1z" fill="${color}" stroke="#fff" stroke-width="2"/><circle cx="16" cy="15" r="5" fill="#fff"/></svg>`)}`,
-      anchor: [0.5, 1],
+      src: `data:image/svg+xml,${encodeURIComponent(buildMarkerSvg(color, theme))}`,
+      anchor: [0.5, 0.92],
     }),
   });
+  markerStyleCache.set(key, style);
+  return style;
+};

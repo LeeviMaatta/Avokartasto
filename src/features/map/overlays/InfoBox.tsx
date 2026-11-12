@@ -103,20 +103,28 @@ export default function InfoBox() {
     }, 1500);
   };
 
+  const lastElevKey = useRef<string>("");
+
   useEffect(() => {
     if (!showElev) {
       setElevError(null);
       return;
     }
     if (!activeCoord) return;
+    const gridKey = `${activeCoord[1].toFixed(3)},${activeCoord[0].toFixed(3)}`;
+    if (gridKey === lastElevKey.current && elev !== null && !elevError) return;
     const ac = new AbortController();
     const t = setTimeout(() => {
       elevationAt(activeCoord[1], activeCoord[0], ac.signal)
-        .then((value) => { setElev(value); setElevError(null); })
+        .then((value) => {
+          lastElevKey.current = gridKey;
+          setElev(value);
+          setElevError(null);
+        })
         .catch((error) => {
           if (!ac.signal.aborted) setElevError(`Korkeustietoa ei voitu hakea: ${String(error)}`);
         });
-    }, 250);
+    }, 500);
     return () => {
       clearTimeout(t);
       ac.abort();

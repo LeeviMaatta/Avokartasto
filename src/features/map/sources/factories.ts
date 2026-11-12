@@ -1,4 +1,5 @@
 import TileLayer from "ol/layer/Tile";
+import { createXYZ } from "ol/tilegrid";
 import VectorLayer from "ol/layer/Vector";
 import ImageLayer from "ol/layer/Image";
 import ImageStatic from "ol/source/ImageStatic";
@@ -14,6 +15,7 @@ import KML from "ol/format/KML";
 import { tileUrl, remoteTileUrl } from "../../../infrastructure/tauriBridge";
 import type { MapSource, SourceFactory } from "./model/sourceTypes";
 import { resolveSourceUrl } from "./resolveUrl";
+import { buildCopernicusWmsParams, isCopernicusSource } from "./copernicusParams";
 
 const paramsOf = (source: MapSource): Record<string, unknown> => {
   try {
@@ -58,8 +60,10 @@ const xyz: SourceFactory = (source, settings) => {
 
 const wms: SourceFactory = (source, settings) => {
   const params = paramsOf(source);
-  return new TileLayer({
-    preload: 1,
+  const copernicus = isCopernicusSource(source);
+  const copernicusParams = copernicus ? buildCopernicusWmsParams(settings) : {};
+  const layer = new TileLayer({
+    preload: copernicus ? 0 : 1,
     useInterimTilesOnError: true,
     source: new TileWMS({
       url: remoteUrl(source, settings),
@@ -70,13 +74,17 @@ const wms: SourceFactory = (source, settings) => {
         VERSION: params.version || "1.3.0",
         TILED: params.tiled ?? true,
         TRANSPARENT: params.transparent ?? true,
+        ...copernicusParams,
       },
+      ...(copernicus ? { tileGrid: createXYZ({ tileSize: 512, maxZoom: source.max_zoom }) } : {}),
       attributions: source.attribution || source.name,
       cacheSize: cacheSizeOf(settings),
       transition: 0,
       crossOrigin: "anonymous",
     }),
   });
+  if (copernicus) layer.set("isCopernicus", true);
+  return layer;
 };
 
 const wmts: SourceFactory = (source, settings) => xyz(source, settings);

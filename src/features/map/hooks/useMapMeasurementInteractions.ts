@@ -18,14 +18,26 @@ interface MapMeasurementOptions {
   profileRequest: MutableRefObject<number>;
   tool: string;
   measurementType: string;
+  editingFeatureId: number | null;
 }
 
-export function useMapMeasurementInteractions({ mapRef, measureSource, profileRequest, tool, measurementType }: MapMeasurementOptions) {
+export function useMapMeasurementInteractions({
+  mapRef,
+  measureSource,
+  profileRequest,
+  tool,
+  measurementType,
+  editingFeatureId,
+}: MapMeasurementOptions) {
   useEffect(() => {
-    if (tool !== "measure") return;
+    const canDraw = tool === "measure";
+    const canModify = canDraw || editingFeatureId !== null;
+    if (!canDraw && !canModify) return;
     const map = mapRef.current;
     if (!map) return;
-    const draw = new Draw({ source: measureSource.current, type: measurementType === "area" ? "Polygon" : "LineString" });
+    const draw = canDraw
+      ? new Draw({ source: measureSource.current, type: measurementType === "area" ? "Polygon" : "LineString" })
+      : null;
     const modify = new Modify({ source: measureSource.current });
     const requestId = () => {
       profileRequest.current += 1;
@@ -51,13 +63,13 @@ export function useMapMeasurementInteractions({ mapRef, measureSource, profileRe
         if (id === profileRequest.current) useMapStore.setState({ profileError: String(error) });
       }
     };
-    draw.on("drawend", (event) => void updateProfile(event.feature as Feature));
+    draw?.on("drawend", (event) => void updateProfile(event.feature as Feature));
     modify.on("modifyend", (event) => void updateProfile(event.features.item(0) as Feature));
-    map.addInteraction(draw);
+    if (draw) map.addInteraction(draw);
     map.addInteraction(modify);
     return () => {
-      map.removeInteraction(draw);
+      if (draw) map.removeInteraction(draw);
       map.removeInteraction(modify);
     };
-  }, [mapRef, measureSource, profileRequest, tool, measurementType]);
+  }, [mapRef, measureSource, profileRequest, tool, measurementType, editingFeatureId]);
 }

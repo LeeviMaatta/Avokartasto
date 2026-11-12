@@ -162,6 +162,7 @@ export default function SearchBar() {
       className="pointer-events-auto absolute left-1/2 top-2 z-30 w-[min(26rem,calc(100vw-9.5rem))] -translate-x-1/2 sm:top-3" 
       style={{ opacity: overlayOpacity }}
     >
+      <div id="map-compass-slot" className="map-compass-slot pointer-events-auto absolute left-full top-[2px] ml-1.5 sm:ml-2" />
       <form 
         className="flex items-center rounded-xl border border-slate-200/80 bg-white/95 p-1 shadow-lg backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95" 
         onSubmit={(event) => { event.preventDefault(); void search(); }}

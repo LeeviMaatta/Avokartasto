@@ -45,7 +45,7 @@ export default function MarkerEditor({
 
       <input 
         className="min-w-28 flex-1 sm:flex-initial sm:w-36 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" 
-        placeholder="Nimi *" 
+        placeholder="Nimi (valinnainen)" 
         aria-label="Merkin nimi" 
         value={draft.title} 
         onChange={(event) => onChange({ ...draft, title: event.target.value })} 
@@ -72,7 +72,7 @@ export default function MarkerEditor({
       <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
         <button 
           className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white shadow hover:bg-blue-700 disabled:opacity-50 transition" 
-          disabled={!draft.title.trim() || busy} 
+          disabled={busy} 
           onClick={onSave}
         >
           <Save size={13} /> <span>{draft.id !== undefined ? "Tallenna" : "Tallenna"}</span>

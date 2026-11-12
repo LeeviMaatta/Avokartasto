@@ -1,5 +1,5 @@
-import { useState } from "react";
 import { GripVertical, ChevronDown, ChevronRight, MoreHorizontal, Folder, Eye, EyeOff } from "lucide-react";
+import { usePersistedBool, usePersistedStringSet } from "../../settings/model/persistedUiState";
 import type { LayerListProps } from "../model/layerListTypes";
 
 export default function LayerList({
@@ -28,19 +28,10 @@ export default function LayerList({
   onSetBasemap,
   onToggleOverlay,
 }: LayerListProps) {
-  const [expandedBasemaps, setExpandedBasemaps] = useState(true);
-  const [expandedOverlays, setExpandedOverlays] = useState(true);
-  const [expandedHidden, setExpandedHidden] = useState(true);
-  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
-
-  const toggleGroupExpanded = (groupId: string) => {
-    setExpandedGroupIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupId)) next.delete(groupId);
-      else next.add(groupId);
-      return next;
-    });
-  };
+  const [expandedBasemaps, toggleBasemaps] = usePersistedBool("layerListExpandedBasemaps", true);
+  const [expandedOverlays, toggleOverlays] = usePersistedBool("layerListExpandedOverlays", true);
+  const [expandedHidden, toggleHidden] = usePersistedBool("layerListExpandedHidden", true);
+  const [expandedGroupIds, toggleGroupExpanded] = usePersistedStringSet("layerListCollapsedGroups");
 
   const renderLayer = (layer: typeof basemaps[number], role: "basemap" | "overlay", ids: string[]) => (
     <div
@@ -203,7 +194,7 @@ export default function LayerList({
       <div className="mb-1">
         <button
           type="button"
-          onClick={() => setExpandedBasemaps((prev) => !prev)}
+          onClick={toggleBasemaps}
           className="flex w-full items-center justify-between py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200"
         >
           <div className="flex items-center gap-1">
@@ -221,7 +212,7 @@ export default function LayerList({
       <div className="mt-2 border-t border-slate-100 pt-1.5 dark:border-zinc-800/60">
         <button
           type="button"
-          onClick={() => setExpandedOverlays((prev) => !prev)}
+          onClick={toggleOverlays}
           className="flex w-full items-center justify-between py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200"
         >
           <div className="flex items-center gap-1">
@@ -248,7 +239,7 @@ export default function LayerList({
         <div className="mt-2 border-t border-slate-100 pt-1.5 dark:border-zinc-800/60">
           <button
             type="button"
-            onClick={() => setExpandedHidden((prev) => !prev)}
+            onClick={toggleHidden}
             className="flex w-full items-center justify-between py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-300"
           >
             <div className="flex items-center gap-1">
