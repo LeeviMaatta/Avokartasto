@@ -1,39 +1,11 @@
 import { create } from "zustand";
-import * as bridge from "../services/tauriBridge";
-import type { LocalSource } from "../services/tauriBridge";
+import * as bridge from "../infrastructure/tauriBridge";
+import type { LocalSource } from "../infrastructure/tauriBridge";
+import { DEFAULT_SETTINGS } from "../features/settings/model/defaultSettings";
+import type { LayerCopy, Measure, ProfilePoint, SelectedFeature, Tool } from "../features/map/model/mapTypes";
 
-export type Tool = "none" | "measure";
-export interface ProfilePoint { dist: number; elev: number | null }
-export interface Measure { length: number; geojson: string; kind: "distance" | "area" }
-export interface LayerCopy {
-  id: string;
-  sourceId: string;
-  name: string;
-  role: "basemap" | "overlay";
-  opacity: number;
-}
-
-export const DEFAULT_SETTINGS: Record<string, string> = {
-  dataFetchMode: "mouse",
-  showWgs: "1",
-  showEtrs: "1",
-  showElev: "1",
-  showWeather: "0",
-  showCenterCrosshair: "1",
-  crosshairColor: "#dc2626",
-  measurementUnits: "metric",
-  measurementType: "distance",
-  tileCache: "1",
-  showLayerErrors: "1",
-  basemap: "osm",
-  overlays: "[]",
-  overlayOrder: "[]",
-  basemapOrder: "[]",
-  layerCopies: "[]",
-  layerViewSettings: "{}",
-  lastMapCenter: "",
-  lastMapZoom: "",
-};
+export type { LayerCopy, Measure, ProfilePoint, SelectedFeature, Tool } from "../features/map/model/mapTypes";
+export { DEFAULT_SETTINGS } from "../features/settings/model/defaultSettings";
 
 interface State {
   settings: Record<string, string>;
@@ -42,6 +14,7 @@ interface State {
   overlays: string[];
   overlayOrder: string[];
   basemapOrder: string[];
+  hiddenLayers: string[];
   layerCopies: LayerCopy[];
   cursor: [number, number] | null;
   centerCoord: [number, number] | null;
@@ -49,10 +22,15 @@ interface State {
   measure: Measure | null;
   editingFeatureId: number | null;
   profile: ProfilePoint[] | null;
+  profileVisible: boolean;
   profileError: string | null;
   featuresVersion: number;
   settingsOpen: boolean;
   weatherModalOpen: boolean;
+  persistenceError: string | null;
+  pendingMarker: [number, number] | null;
+  markerEditorOpen: boolean;
+  selectedFeature: SelectedFeature | null;
 
   loadAll: () => Promise<void>;
   setSetting: (k: string, v: string) => Promise<void>;
@@ -60,6 +38,8 @@ interface State {
   reloadSources: () => Promise<void>;
   setBasemap: (id: string) => void;
   toggleOverlay: (id: string) => void;
+  hideLayer: (id: string, role: "basemap" | "overlay") => void;
+  restoreLayer: (id: string, role: "basemap" | "overlay") => void;
   reorderOverlays: (fromId: string, toId: string) => void;
   reorderLayerList: (kind: "overlay" | "basemap", fromId: string, toId: string) => void;
   setLayerOrder: (kind: "overlay" | "basemap", ids: string[]) => void;
@@ -67,6 +47,8 @@ interface State {
   duplicateLayer: (sourceId: string, name: string, role: "basemap" | "overlay") => void;
   deleteLayerCopy: (id: string) => void;
   bumpFeatures: () => void;
+  clearPersistenceError: () => void;
+  setPendingMarker: (coordinates: [number, number] | null) => void;
 }
 
 export const useMapStore = create<State>((set, get) => ({
@@ -76,6 +58,7 @@ export const useMapStore = create<State>((set, get) => ({
   overlays: [],
   overlayOrder: [],
   basemapOrder: [],
+  hiddenLayers: [],
   layerCopies: [],
   cursor: null,
   centerCoord: null,
@@ -83,10 +66,15 @@ export const useMapStore = create<State>((set, get) => ({
   measure: null,
   editingFeatureId: null,
   profile: null,
+  profileVisible: false,
   profileError: null,
   featuresVersion: 0,
   settingsOpen: false,
   weatherModalOpen: false,
+  persistenceError: null,
+  pendingMarker: null,
+  markerEditorOpen: false,
+  selectedFeature: null,
 
   loadAll: async () => {
     const [settings, sources] = await Promise.all([bridge.getSettings(), bridge.listSources()]);
@@ -94,6 +82,7 @@ export const useMapStore = create<State>((set, get) => ({
     let overlays: string[] = [];
     let overlayOrder: string[] = [];
     let basemapOrder: string[] = [];
+    let hiddenLayers: string[] = [];
     let layerCopies: LayerCopy[] = [];
     try {
       const parsed = JSON.parse(merged.overlays ?? "[]");
@@ -108,6 +97,12 @@ export const useMapStore = create<State>((set, get) => ({
       } catch {
         setter([]);
       }
+      try {
+        const parsed = JSON.parse(merged.hiddenLayers ?? "[]");
+        if (Array.isArray(parsed)) hiddenLayers = parsed.filter((id): id is string => typeof id === "string");
+      } catch {
+        hiddenLayers = [];
+      }
     }
     try {
       const parsed = JSON.parse(merged.layerCopies ?? "[]");
@@ -121,17 +116,34 @@ export const useMapStore = create<State>((set, get) => ({
     } catch {
       layerCopies = [];
     }
-    set({ settings: merged, sources, basemap: merged.basemap ?? "osm", overlays, overlayOrder, basemapOrder, layerCopies });
+    set({ settings: merged, sources, basemap: merged.basemap ?? "osm", overlays, overlayOrder, basemapOrder, hiddenLayers, layerCopies });
   },
   setSetting: async (k, v) => {
-    await bridge.setSetting(k, v);
-    set({ settings: { ...get().settings, [k]: v } });
+    try {
+      await bridge.setSetting(k, v);
+      set({ settings: { ...get().settings, [k]: v }, persistenceError: null });
+    } catch (error) {
+      console.error(`Asetuksen ${k} tallennus epäonnistui`, error);
+      set({ persistenceError: "Asetusta ei voitu tallentaa." });
+    }
   },
   setSettings: async (settings) => {
-    await bridge.setSettings(settings);
-    set({ settings: { ...DEFAULT_SETTINGS, ...settings } });
+    try {
+      await bridge.setSettings(settings);
+      set({ settings: { ...DEFAULT_SETTINGS, ...settings }, persistenceError: null });
+    } catch (error) {
+      console.error("Asetusten tallennus epäonnistui", error);
+      set({ persistenceError: "Asetuksia ei voitu tallentaa." });
+    }
   },
-  reloadSources: async () => set({ sources: await bridge.listSources() }),
+  reloadSources: async () => {
+    try {
+      set({ sources: await bridge.listSources(), persistenceError: null });
+    } catch (error) {
+      console.error("Karttalähteiden lataus epäonnistui", error);
+      set({ persistenceError: "Karttalähteitä ei voitu ladata." });
+    }
+  },
   setBasemap: (id) => {
     set({ basemap: id });
     void get().setSetting("basemap", id);
@@ -140,9 +152,26 @@ export const useMapStore = create<State>((set, get) => ({
     const o = get().overlays;
     const overlays = o.includes(id) ? o.filter((x) => x !== id) : [...o, id];
     const overlayOrder = get().overlayOrder.includes(id) ? get().overlayOrder : [...get().overlayOrder, id];
-    set({ overlays, overlayOrder });
+    const hiddenLayers = overlays.includes(id) ? get().hiddenLayers.filter((x) => x !== id) : get().hiddenLayers;
+    set({ overlays, overlayOrder, hiddenLayers });
     void get().setSetting("overlays", JSON.stringify(overlays));
     void get().setSetting("overlayOrder", JSON.stringify(overlayOrder));
+    void get().setSetting("hiddenLayers", JSON.stringify(hiddenLayers));
+  },
+  hideLayer: (id, role) => {
+    const hiddenLayers = get().hiddenLayers.includes(id) ? get().hiddenLayers : [...get().hiddenLayers, id];
+    const overlays = role === "overlay" ? get().overlays.filter((layer) => layer !== id) : get().overlays;
+    set({ hiddenLayers, overlays, ...(role === "basemap" && get().basemap === id ? { basemap: "osm" } : {}) });
+    void get().setSetting("hiddenLayers", JSON.stringify(hiddenLayers));
+    if (role === "overlay") void get().setSetting("overlays", JSON.stringify(overlays));
+  },
+  restoreLayer: (id, role) => {
+    const hiddenLayers = get().hiddenLayers.filter((layer) => layer !== id);
+    const overlays = role === "overlay" && !get().overlays.includes(id) ? [...get().overlays, id] : get().overlays;
+    set({ hiddenLayers, overlays, ...(role === "basemap" ? { basemap: id } : {}) });
+    void get().setSetting("hiddenLayers", JSON.stringify(hiddenLayers));
+    if (role === "overlay") void get().setSetting("overlays", JSON.stringify(overlays));
+    if (role === "basemap") void get().setSetting("basemap", id);
   },
   reorderOverlays: (fromId, toId) => {
     const current = [...get().overlays];
@@ -196,4 +225,6 @@ export const useMapStore = create<State>((set, get) => ({
     void get().setSetting("layerCopies", JSON.stringify(layerCopies));
   },
   bumpFeatures: () => set({ featuresVersion: get().featuresVersion + 1 }),
+  clearPersistenceError: () => set({ persistenceError: null }),
+  setPendingMarker: (coordinates) => set({ pendingMarker: coordinates }),
 }));

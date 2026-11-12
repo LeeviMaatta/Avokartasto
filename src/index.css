@@ -1,4 +1,7 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 html, body, #root { height: 100%; margin: 0; }
 body { font-family: system-ui, "Segoe UI", sans-serif; }
 .ol-zoom { top: auto; bottom: 8.5rem; left: auto; right: .75rem; }
+.ol-control button { background: rgb(255 255 255 / 0.95); color: #1f2937; }
+.dark .ol-control button { background: rgb(9 9 11 / 0.95); color: white; }

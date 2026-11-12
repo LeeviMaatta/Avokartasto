@@ -19,3 +19,22 @@ npm run tauri build             # asennuspaketti: src-tauri/target/release/bundl
 - Maanmittauslaitos: https://www.maanmittauslaitos.fi/rajapinnat/api-avaimen-ohje
 - Lantmäteriet Topo: Lantmäteriet-käyttäjän sähköposti ja salasana
 - OpenWeatherMap: openweathermap.org/api
+
+API-avaimet ja Lantmäteriet-tunnukset tallennetaan Windowsin suojattuun
+käyttöjärjestelmän tunnussäilöön, eivät sovelluksen SQLite-tietokantaan.
+
+## Frontendin rakenne
+
+Frontend on jaettu ominaisuuksien ja integraatioiden mukaan:
+
+- `src/app` sisältää sovelluksen rungon, työkalupalkin ja yleiset dialogit.
+- `src/features/map` sisältää karttanäkymän, OpenLayers-integraation ja kartan tyylit.
+- `src/features/map/catalog` sisältää pohjakarttojen ja overlay-tasojen katalogit.
+- `src/features/measurements` sisältää mittausten muotoilun, viennin ja korkeusprofiilin.
+- `src/features/location-info` sisältää koordinaatti-, korkeus- ja säätiedot.
+- `src/features/settings` sisältää asetustyypit ja oletusasetukset.
+- `src/infrastructure/tauri` sisältää Tauri-, tile-, asetus- ja feature-rajapinnat.
+- `src/shared` sisältää ulkoisista ominaisuuksista riippumattomat yhteiset apurit.
+
+`src/infrastructure/tauriBridge.ts` säilyy toistaiseksi yhteensopivuusfasadina,
+jotta ominaisuudet voidaan siirtää pienempiin bridge-tiedostoihin vaiheittain.

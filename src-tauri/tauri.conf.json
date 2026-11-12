@@ -11,7 +11,9 @@
   },
   "app": {
     "windows": [{ "title": "Karttasovellus", "width": 1400, "height": 900 }],
-    "security": { "csp": null }
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https: http://localhost:1420 http://app-tile.localhost http://lantmateriet-tile.localhost; img-src 'self' data: blob: https: http://app-tile.localhost http://lantmateriet-tile.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
   },
   "bundle": {
     "active": true,
