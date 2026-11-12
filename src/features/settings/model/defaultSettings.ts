@@ -26,4 +26,5 @@ export const DEFAULT_SETTINGS: Settings = {
   hiddenLayers: "[]",
   lastMapCenter: "",
   lastMapZoom: "",
+  debugSettings: "",
 };

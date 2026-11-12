@@ -21,6 +21,7 @@ import { useMapMeasurementInteractions } from "./hooks/useMapMeasurementInteract
 import { useMapFeatures } from "./hooks/useMapFeatures";
 import { useMapLayers } from "./hooks/useMapLayers";
 import FeatureContextMenu from "./components/FeatureContextMenu";
+import { recordDebugEvent, setDebugMap } from "../debug/debugMonitor";
 
 export default function MapContainer() {
   const el = useRef<HTMLDivElement>(null);
@@ -209,6 +210,8 @@ export default function MapContainer() {
     document.addEventListener("pointerdown", closeContextMenuOutside);
 
     mapRef.current = map;
+    setDebugMap(map);
+    recordDebugEvent("map", "Map initialized");
     updateCoords();
     return () => {
       mapElement?.removeEventListener("contextmenu", preventBrowserContextMenu);
@@ -225,6 +228,7 @@ export default function MapContainer() {
       }
       map.setTarget(undefined);
       mapRef.current = null;
+      setDebugMap(null);
       viewport.removeEventListener("contextmenu", handleContextMenu);
       document.removeEventListener("pointerdown", closeContextMenuOutside);
     };

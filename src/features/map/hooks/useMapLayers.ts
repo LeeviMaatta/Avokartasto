@@ -3,6 +3,7 @@ import OlMap from "ol/Map";
 import TileLayer from "ol/layer/Tile";
 import { buildLayer } from "../layers";
 import type { LocalSource } from "../../../infrastructure/tauriBridge";
+import { recordDebugEvent, recordTileEvent } from "../../debug/debugMonitor";
 
 const APP_LAYER_TYPE = "karttasovellus-layer-type";
 
@@ -53,10 +54,13 @@ export function useMapLayers({ mapRef, overlayRefs, basemap, overlays, overlayOr
     };
     const onLoad = () => {
       loadedTiles += 1;
+      recordTileEvent(true);
       finish(true);
     };
     const onError = () => {
       failedTiles += 1;
+      recordTileEvent(false);
+      recordDebugEvent("tiles", "Tile load failed", "warning");
       if (failedTiles >= 5 && loadedTiles === 0) finish(false, "Karttatiilien lataus epäonnistui. Tarkista tunnukset.");
     };
     const timeout = window.setTimeout(() => finish(

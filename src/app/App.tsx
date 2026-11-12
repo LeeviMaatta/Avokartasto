@@ -8,6 +8,8 @@ import InfoBox from "../features/map/overlays/InfoBox";
 import SettingsModal from "../features/settings/SettingsModal";
 import ConfirmDialog from "./ConfirmDialog";
 import AppToolbar from "./appToolbar/AppToolbar";
+import DebugOverlay from "../features/debug/DebugOverlay";
+import { useDebugStore } from "../features/debug/debugStore";
 
 const ElevationChart = lazy(() => import("../features/measurements/ElevationChart"));
 
@@ -16,6 +18,7 @@ export default function App() {
   const persistenceError = useMapStore((s) => s.persistenceError);
   const clearPersistenceError = useMapStore((s) => s.clearPersistenceError);
   const settings = useMapStore((s) => s.settings);
+  const loadDebugSettings = useDebugStore((s) => s.load);
   const rawOverlayOpacity = Number(settings.uiOverlayOpacity ?? "1");
   const overlayOpacity = Number.isFinite(rawOverlayOpacity) ? Math.min(1, Math.max(0, rawOverlayOpacity)) : 1;
 
@@ -24,11 +27,13 @@ export default function App() {
   }, [settings.theme]);
 
   useEffect(() => {
-    void loadAll().catch((error) => {
+    void loadAll().then(() => {
+      loadDebugSettings(useMapStore.getState().settings.debugSettings);
+    }).catch((error) => {
       console.error("Sovelluksen tietojen lataus epäonnistui", error);
       useMapStore.setState({ persistenceError: "Sovelluksen tietoja ei voitu ladata." });
     });
-  }, [loadAll]);
+  }, [loadAll, loadDebugSettings]);
 
   useEffect(() => {
     const preventBrowserContextMenu = (event: MouseEvent) => {
@@ -50,6 +55,7 @@ export default function App() {
         <ElevationChart />
       </Suspense>
       <InfoBox />
+      <DebugOverlay />
       <SettingsModal />
       <ConfirmDialog />
       {persistenceError && (

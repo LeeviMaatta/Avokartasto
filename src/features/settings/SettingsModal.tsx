@@ -2,13 +2,19 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useMapStore } from "../../store/mapStore";
 import { SETTING_KEYS, SETTING_TOGGLES, SETTING_VALUE_KEYS } from "./model/settingFields";
+import { useDebugStore } from "../debug/debugStore";
+import { DEBUG_CATEGORIES, DEBUG_VALUES, DEFAULT_DEBUG_SETTINGS, parseDebugSettings, type DebugSettings } from "../debug/model/debugTypes";
 
 export default function SettingsModal() {
   const { settingsOpen, settings, setSettings } = useMapStore();
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [debugDraft, setDebugDraft] = useState<DebugSettings>(DEFAULT_DEBUG_SETTINGS);
+  const [debugDataOpen, setDebugDataOpen] = useState(false);
   useEffect(() => {
     if (settingsOpen) {
       setDraft(settings);
+      setDebugDraft(parseDebugSettings(settings.debugSettings));
+      setDebugDataOpen(false);
     }
   }, [settingsOpen]);
   if (!settingsOpen) return null;
@@ -18,7 +24,8 @@ export default function SettingsModal() {
       [...SETTING_KEYS.map(([k]) => k), ...SETTING_TOGGLES.map(([k]) => k), ...SETTING_VALUE_KEYS]
         .map((key) => [key, (draft[key] ?? "").trim()])
     );
-    await setSettings({ ...settings, ...values, googleKey: "" });
+    await setSettings({ ...settings, ...values, debugSettings: JSON.stringify(debugDraft), googleKey: "" });
+    useDebugStore.setState({ settings: debugDraft });
     useMapStore.setState({ settingsOpen: false });
   };
 
@@ -119,6 +126,80 @@ export default function SettingsModal() {
             <option value="area">Pinta-ala</option>
           </select>
         </label>
+        <h3 className="mb-1 mt-4 font-semibold text-gray-700 dark:text-gray-200">Debug</h3>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={debugDraft.enabled}
+            onChange={(e) => setDebugDraft({ ...debugDraft, enabled: e.target.checked })}
+          />
+          <span>Debug overlay</span>
+        </label>
+        <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+          Näytä kartan diagnostiikkatiedot erillisessä overlay-paneelissa.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <label>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Sijainti</span>
+            <select className="mt-1 w-full rounded border px-2 py-1 dark:border-gray-600 dark:bg-gray-700" value={debugDraft.position} onChange={(e) => setDebugDraft({ ...debugDraft, position: e.target.value as DebugSettings["position"] })}>
+              <option value="top-left">Ylävasen</option>
+              <option value="top-right">Yläoikea</option>
+              <option value="bottom-left">Alavasen</option>
+              <option value="bottom-right">Alaoikea</option>
+            </select>
+          </label>
+          <label>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Läpinäkyvyys</span>
+            <input className="mt-2 w-full accent-blue-600" type="range" min="0.6" max="1" step="0.05" value={debugDraft.opacity} onChange={(e) => setDebugDraft({ ...debugDraft, opacity: Number(e.target.value) })} />
+          </label>
+        </div>
+        <label className="my-2 flex items-center gap-2">
+          <input type="checkbox" checked={debugDraft.compactMode} onChange={(e) => setDebugDraft({ ...debugDraft, compactMode: e.target.checked })} />
+          <span>Compact mode</span>
+        </label>
+        <div className="rounded border dark:border-gray-700">
+          <button type="button" className="flex w-full items-center justify-between px-2 py-2 text-left font-medium" onClick={() => setDebugDataOpen((open) => !open)}>
+            <span>Debug data ({Object.values(debugDraft.categories).filter(Boolean).length} / {DEBUG_CATEGORIES.length} categories enabled)</span>
+            <span aria-hidden>{debugDataOpen ? "−" : "+"}</span>
+          </button>
+          {debugDataOpen && (
+            <div className="space-y-3 border-t p-2 dark:border-gray-700">
+              {DEBUG_CATEGORIES.map((category) => {
+                const enabledValues = DEBUG_VALUES[category.id].filter((value) => debugDraft.values[value.id]).length;
+                return (
+                  <div key={category.id}>
+                    <label className="flex items-center gap-2 font-medium">
+                      <input type="checkbox" checked={debugDraft.categories[category.id]} onChange={(e) => setDebugDraft({ ...debugDraft, categories: { ...debugDraft.categories, [category.id]: e.target.checked } })} />
+                      <span>{category.label}</span>
+                      <span className="text-xs text-gray-500">{enabledValues} / {DEBUG_VALUES[category.id].length}</span>
+                    </label>
+                    <p className="ml-6 text-xs text-gray-500 dark:text-gray-400">{category.description}</p>
+                    <div className="ml-6 grid grid-cols-2 gap-1">
+                      {DEBUG_VALUES[category.id].map((value) => (
+                        <label key={value.id} className="flex items-center gap-1 text-xs">
+                          <input type="checkbox" checked={debugDraft.values[value.id] ?? false} onChange={(e) => setDebugDraft({ ...debugDraft, values: { ...debugDraft.values, [value.id]: e.target.checked } })} />
+                          {value.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button type="button" className="rounded border px-2 py-1 text-xs" onClick={() => setDebugDraft(DEFAULT_DEBUG_SETTINGS)}>Palauta debug-oletukset</button>
+          <button type="button" className="rounded border px-2 py-1 text-xs" onClick={() => {
+            const report = { createdAt: new Date().toISOString(), settings: debugDraft, snapshot: useDebugStore.getState().snapshot, events: useDebugStore.getState().events };
+            const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }));
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "karttasovellus-debug-report.json";
+            link.click();
+            URL.revokeObjectURL(url);
+          }}>Vie debug-raportti</button>
+        </div>
 
         <div className="mt-5 flex justify-end border-t dark:border-gray-700 pt-4">
           <span className="text-xs text-gray-500 dark:text-gray-400">Asetukset tallennetaan, kun ikkuna suljetaan.</span>

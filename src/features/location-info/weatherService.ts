@@ -13,6 +13,7 @@ export interface DetailedWeather {
   description: string;
   cityName: string;
 }
+import { fetchWithDebug } from "../debug/debugFetch";
 
 const cache = new Map<string, { value: DetailedWeather; expires: number }>();
 
@@ -31,7 +32,7 @@ export async function fetchWeather(lat: number, lon: number, key: string, signal
   const hit = cache.get(ck);
   if (hit && hit.expires > Date.now()) return hit.value;
   const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${key}&units=metric&lang=fi`;
-  const r = await fetch(url, { signal });
+  const r = await fetchWithDebug(url, { signal }, "weather");
   if (!r.ok) return null;
   const j: unknown = await r.json();
   if (!isRecord(j) || !isRecord(j.main) || !isRecord(j.wind) || !isRecord(j.clouds) || !Array.isArray(j.weather)) {

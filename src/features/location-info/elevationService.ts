@@ -2,6 +2,7 @@ const BASE = "https://api.open-meteo.com/v1/elevation";
 const BATCH_SIZE = 7;
 const MAX_RETRIES = 2;
 const cache = new Map<string, { value: number | null | (number | null)[]; expires: number }>();
+import { fetchWithDebug } from "../debug/debugFetch";
 
 const parseElevation = (value: unknown): number | null => {
   if (value === null) return null;
@@ -22,7 +23,7 @@ const fetchElevationBatch = async (points: [number, number][]): Promise<(number 
   const lats = points.map(([, lat]) => lat).join(",");
   const lons = points.map(([lon]) => lon).join(",");
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
-    const response = await fetch(`${BASE}?latitude=${lats}&longitude=${lons}`);
+    const response = await fetchWithDebug(`${BASE}?latitude=${lats}&longitude=${lons}`, undefined, "elevation");
     if (response.ok) {
       const json: unknown = await response.json();
       if (json && typeof json === "object" && "elevation" in json && Array.isArray(json.elevation)) {
@@ -48,7 +49,7 @@ export async function elevationAt(lat: number, lon: number, signal?: AbortSignal
   if (hit && hit.expires > Date.now() && !Array.isArray(hit.value)) return hit.value;
   let r: Response | null = null;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
-    r = await fetch(`${BASE}?latitude=${lat}&longitude=${lon}`, { signal });
+    r = await fetchWithDebug(`${BASE}?latitude=${lat}&longitude=${lon}`, { signal }, "elevation");
     if (r.ok) break;
     if (r.status !== 429 || attempt === MAX_RETRIES) throw new Error(`Open-Meteo Elevation: ${r.status}`);
     await new Promise((resolve) => setTimeout(resolve, retryDelay(r!, attempt)));

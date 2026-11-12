@@ -1,0 +1,130 @@
+export type DebugCategory =
+  | "map"
+  | "coordinates"
+  | "layers"
+  | "tiles"
+  | "network"
+  | "performance"
+  | "application"
+  | "events"
+  | "resources";
+
+export type DebugPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+export interface DebugSettings {
+  enabled: boolean;
+  position: DebugPosition;
+  opacity: number;
+  fontSize: "small" | "medium";
+  compactMode: boolean;
+  categories: Record<DebugCategory, boolean>;
+  values: Record<string, boolean>;
+}
+
+export type DebugValue = number | string | boolean | null;
+export type DebugSnapshot = Record<string, DebugValue>;
+
+export interface DebugEvent {
+  timestamp: number;
+  severity: "info" | "warning" | "error";
+  source: string;
+  message: string;
+}
+
+export const DEBUG_CATEGORIES: { id: DebugCategory; label: string; description: string }[] = [
+  { id: "map", label: "Map", description: "Karttanäkymän tila" },
+  { id: "coordinates", label: "Coordinates", description: "Koordinaatit ja projektiot" },
+  { id: "layers", label: "Layers", description: "Karttatasojen yhteenveto" },
+  { id: "tiles", label: "Tile loading", description: "Karttaruutujen lataus" },
+  { id: "network", label: "Network", description: "Verkkopyyntöjen yhteenveto" },
+  { id: "performance", label: "Performance", description: "Ruudunpäivityksen suorituskyky" },
+  { id: "application", label: "Application", description: "Sovelluksen perustiedot" },
+  { id: "events", label: "Errors & events", description: "Viimeisimmät debug-tapahtumat" },
+  { id: "resources", label: "Memory & resources", description: "Saatavilla olevat resurssimittarit" },
+];
+
+export const DEBUG_VALUES: Record<DebugCategory, { id: string; label: string }[]> = {
+  map: [
+    { id: "map.zoom", label: "Zoom level" },
+    { id: "map.resolution", label: "Resolution" },
+    { id: "map.viewport", label: "Viewport" },
+    { id: "map.center", label: "View center" },
+    { id: "map.interacting", label: "View is interacting" },
+  ],
+  coordinates: [
+    { id: "coordinates.centerWgs84", label: "Center in WGS84" },
+    { id: "coordinates.pointerWgs84", label: "Pointer in WGS84" },
+    { id: "coordinates.projection", label: "View projection" },
+  ],
+  layers: [
+    { id: "layers.total", label: "Total layers" },
+    { id: "layers.visible", label: "Visible layers" },
+    { id: "layers.base", label: "Active base layer" },
+  ],
+  tiles: [
+    { id: "tiles.loaded", label: "Loaded tiles" },
+    { id: "tiles.failed", label: "Failed tiles" },
+    { id: "tiles.successRate", label: "Tile success rate" },
+  ],
+  network: [
+    { id: "network.active", label: "Active requests" },
+    { id: "network.completed", label: "Completed requests" },
+    { id: "network.failed", label: "Failed requests" },
+  ],
+  performance: [
+    { id: "performance.fps", label: "Current FPS" },
+    { id: "performance.frameTime", label: "Frame time" },
+  ],
+  application: [
+    { id: "application.environment", label: "Environment" },
+    { id: "application.viewport", label: "Window size" },
+    { id: "application.pixelRatio", label: "Device pixel ratio" },
+  ],
+  events: [
+    { id: "events.errors", label: "Total errors" },
+    { id: "events.warnings", label: "Total warnings" },
+    { id: "events.recent", label: "Recent events" },
+  ],
+  resources: [
+    { id: "resources.jsHeap", label: "Used JS heap" },
+  ],
+};
+
+const defaultValues = Object.fromEntries(
+  Object.values(DEBUG_VALUES).flat().map(({ id }) => [id, true]),
+);
+
+export const DEFAULT_DEBUG_SETTINGS: DebugSettings = {
+  enabled: false,
+  position: "top-left",
+  opacity: 0.85,
+  fontSize: "small",
+  compactMode: false,
+  categories: {
+    map: true,
+    coordinates: true,
+    layers: true,
+    tiles: true,
+    network: true,
+    performance: true,
+    application: false,
+    events: true,
+    resources: false,
+  },
+  values: defaultValues,
+};
+
+export function parseDebugSettings(raw: string | undefined): DebugSettings {
+  if (!raw) return DEFAULT_DEBUG_SETTINGS;
+  try {
+    const parsed = JSON.parse(raw) as Partial<DebugSettings>;
+    return {
+      ...DEFAULT_DEBUG_SETTINGS,
+      ...parsed,
+      categories: { ...DEFAULT_DEBUG_SETTINGS.categories, ...(parsed.categories ?? {}) },
+      values: { ...DEFAULT_DEBUG_SETTINGS.values, ...(parsed.values ?? {}) },
+    };
+  } catch {
+    return DEFAULT_DEBUG_SETTINGS;
+  }
+}

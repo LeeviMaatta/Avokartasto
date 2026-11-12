@@ -1,24 +1,35 @@
 import { Search, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMapStore } from "../../../store/mapStore";
+import { fetchWithDebug } from "../../debug/debugFetch";
 
 type SearchResult = { display_name: string; lat: string; lon: string };
+const SEARCH_TIMEOUT_MS = 10_000;
 
 export default function SearchBar() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const searchController = useRef<AbortController | null>(null);
   const rawOverlayOpacity = Number(useMapStore((s) => s.settings.uiOverlayOpacity ?? "1"));
   const overlayOpacity = Number.isFinite(rawOverlayOpacity) ? Math.min(1, Math.max(0, rawOverlayOpacity)) : 1;
 
   const search = async () => {
     const text = query.trim();
     if (!text) return;
+    searchController.current?.abort();
+    const controller = new AbortController();
+    searchController.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=fi&q=${encodeURIComponent(text)}`);
+      const response = await fetchWithDebug(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=fi&q=${encodeURIComponent(text)}`,
+        { signal: controller.signal },
+        "place search",
+      );
       if (!response.ok) throw new Error("Paikkahaku epäonnistui.");
       const data: unknown = await response.json();
       if (!Array.isArray(data)) throw new Error("Paikkahaun vastaus oli virheellinen.");
@@ -30,12 +41,24 @@ export default function SearchBar() {
       setResults(valid);
       if (valid.length === 0) setError("Paikkaa ei löytynyt.");
     } catch (reason) {
+      if (searchController.current !== controller) return;
+      if (controller.signal.aborted) {
+        setError("Paikkahaku kesti liian kauan. Yritä uudelleen.");
+        return;
+      }
       console.error("Paikkahaku epäonnistui", reason);
       setError(reason instanceof Error ? reason.message : "Paikkahaku epäonnistui.");
     } finally {
-      setLoading(false);
+      window.clearTimeout(timeout);
+      if (searchController.current === controller) searchController.current = null;
+      if (searchController.current === null) setLoading(false);
     }
   };
+
+  useEffect(() => () => {
+    searchController.current?.abort();
+    searchController.current = null;
+  }, []);
 
   const select = (result: SearchResult) => {
     const lat = Number(result.lat);
