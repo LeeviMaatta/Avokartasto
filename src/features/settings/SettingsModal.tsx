@@ -7,6 +7,7 @@ import {
   Map as MapIcon, 
   Compass, 
   Ruler, 
+  MapPin,
   KeyRound, 
   Bug, 
   Check 
@@ -14,12 +15,22 @@ import {
 import { useMapStore } from "../../store/mapStore";
 import { SETTING_KEYS, SETTING_TOGGLES, SETTING_VALUE_KEYS } from "./model/settingFields";
 import { parseOpenSections } from "./model/persistedUiState";
+import {
+  BACKDROP_MAX_ZOOM,
+  abortBackdropPreload,
+  getBackdropCacheStatus,
+  preloadBackdropLayer,
+  subscribeBackdropCacheStatus,
+  type BackdropCacheStatus,
+} from "../map/sources/backdropCache";
+import { requiredSecrets } from "../map/sources/resolveUrl";
 
 const DEFAULT_OPEN_SECTIONS: Record<string, boolean> = {
   theme: true,
   map: true,
   coords: false,
   measure: false,
+  colors: false,
   api: false,
   debug: false,
 };
@@ -33,11 +44,12 @@ import {
 } from "../debug/model/debugTypes";
 
 export default function SettingsModal() {
-  const { settingsOpen, settings, setSettings } = useMapStore();
+  const { settingsOpen, settings, setSettings, sources, centerCoord } = useMapStore();
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [debugDraft, setDebugDraft] = useState<DebugSettings>(DEFAULT_DEBUG_SETTINGS);
   const [debugDataOpen, setDebugDataOpen] = useState(false);
   const [savedInitialView, setSavedInitialView] = useState(false);
+  const [backdropStatus, setBackdropStatus] = useState<BackdropCacheStatus>(() => getBackdropCacheStatus());
   
   // Accordion sections
   const openSections = parseOpenSections(settings.settingsOpenSections, DEFAULT_OPEN_SECTIONS);
@@ -46,6 +58,8 @@ export default function SettingsModal() {
   draftRef.current = draft;
   const debugDraftRef = useRef(debugDraft);
   debugDraftRef.current = debugDraft;
+
+  useEffect(() => subscribeBackdropCacheStatus(setBackdropStatus), []);
 
   useEffect(() => {
     if (settingsOpen) {
@@ -74,7 +88,6 @@ export default function SettingsModal() {
       initialMapCenter: currentDraft.initialMapCenter ?? "",
       initialMapZoom: currentDraft.initialMapZoom ?? "",
       debugSettings: JSON.stringify(currentDebug), 
-      googleKey: "" 
     });
     useDebugStore.setState({ settings: currentDebug });
     useMapStore.setState({ settingsOpen: false });
@@ -352,7 +365,7 @@ export default function SettingsModal() {
                       checked={draft.removePendingMarkerOnDblClick !== "0"}
                       onChange={(e) => setDraft({ ...draft, removePendingMarkerOnDblClick: e.target.checked ? "1" : "0" })}
                     />
-                    <span>Poista tallentamaton merkki kaksoisklikkauksella</span>
+                    <span>Poista tallentamaton merkki ja lopeta mittauksen muokkaus kaksoisklikkauksella</span>
                   </label>
 
                   <label className="flex items-center gap-2.5 cursor-pointer">
@@ -459,6 +472,126 @@ export default function SettingsModal() {
                     )}
                   </div>
                 </div>
+
+                {(() => {
+                  const selectedBackdropId = draft.backdropLayerId ?? "";
+                  const tileCompatible = sources.filter(
+                    (s) =>
+                      (s.url.trim() || s.base_path.trim()) &&
+                      (s.api_type === "xyz" ||
+                        s.api_type === "wmts" ||
+                        s.api_type === "wms" ||
+                        s.api_type === "local_tile" ||
+                        s.api_type === "vector_tile"),
+                  );
+                  const basemapChoices = tileCompatible.filter((s) => s.role === "basemap");
+                  const overlayChoices = tileCompatible.filter((s) => s.role === "overlay");
+                  const selectedSource = tileCompatible.find((s) => `src:${s.id}` === selectedBackdropId);
+                  const missingKeys = selectedSource
+                    ? requiredSecrets(selectedSource).filter((key) => !(draft[key] ?? "").trim())
+                    : [];
+                  const effectiveMax = selectedSource
+                    ? Math.min(selectedSource.max_zoom || BACKDROP_MAX_ZOOM, BACKDROP_MAX_ZOOM)
+                    : BACKDROP_MAX_ZOOM;
+                  const statusMatchesSelected =
+                    Boolean(selectedBackdropId) && backdropStatus.sourceId === selectedBackdropId;
+
+                  const triggerBackdropPreload = (id: string, force = false) => {
+                    if (!id) {
+                      abortBackdropPreload();
+                      return;
+                    }
+                    const targetSource = tileCompatible.find((s) => `src:${s.id}` === id);
+                    if (!targetSource) return;
+                    void preloadBackdropLayer({
+                      source: targetSource,
+                      settings: draft,
+                      centerCoord,
+                      force,
+                    });
+                  };
+
+                  return (
+                    <div className="pt-3 border-t border-slate-200 dark:border-zinc-800 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-slate-700 dark:text-zinc-300">
+                          Kaikkien karttojen taustakerros (välimuistitettu)
+                        </span>
+                        {selectedSource && (
+                          <button
+                            type="button"
+                            onClick={() => triggerBackdropPreload(selectedBackdropId, true)}
+                            disabled={backdropStatus.loading && statusMatchesSelected}
+                            className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                          >
+                            {backdropStatus.loading && statusMatchesSelected
+                              ? "Ladataan..."
+                              : "Lataa nykyinen alue"}
+                          </button>
+                        )}
+                      </div>
+                      <select
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        value={selectedBackdropId}
+                        onChange={(e) => {
+                          const nextId = e.target.value;
+                          setDraft({ ...draft, backdropLayerId: nextId });
+                          triggerBackdropPreload(nextId);
+                        }}
+                      >
+                        <option value="">Ei käytössä</option>
+                        {basemapChoices.length > 0 && (
+                          <optgroup label="Pohjakartat">
+                            {basemapChoices.map((s) => (
+                              <option key={s.id} value={`src:${s.id}`}>
+                                {s.name} (maks. zoom {Math.min(s.max_zoom || BACKDROP_MAX_ZOOM, BACKDROP_MAX_ZOOM)})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {overlayChoices.length > 0 && (
+                          <optgroup label="Päällyskartat">
+                            {overlayChoices.map((s) => (
+                              <option key={s.id} value={`src:${s.id}`}>
+                                {s.name} (maks. zoom {Math.min(s.max_zoom || BACKDROP_MAX_ZOOM, BACKDROP_MAX_ZOOM)})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                      <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                        Näytetään kaikkien muiden karttatasojen taustalla. Esilataus optimoidaan lataamalla tasot korkeammalta zoom-tasolle {BACKDROP_MAX_ZOOM} asti; tarkemmilla tasoilla näytetään skaalattu taso {BACKDROP_MAX_ZOOM}.
+                      </p>
+                      {missingKeys.length > 0 && (
+                        <div className="text-[11px] text-amber-600 dark:text-amber-400">
+                          Valittu taso vaatii API-avaimen/tunnukset ({missingKeys.join(", ")}), jotka voi lisätä API-avaimet-osiossa.
+                        </div>
+                      )}
+                      {statusMatchesSelected && backdropStatus.total > 0 && (
+                        <div className="space-y-1 pt-0.5">
+                          <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-zinc-300">
+                            <span>
+                              {backdropStatus.loading
+                                ? `Ladataan välimuistiin: ${backdropStatus.loaded + backdropStatus.failed} / ${backdropStatus.total} laattaa (tasot 0–${effectiveMax})`
+                                : `Välimuistissa ${backdropStatus.loaded} / ${backdropStatus.total} laattaa (tasot 0–${effectiveMax})${backdropStatus.failed > 0 ? `, ${backdropStatus.failed} epäonnistui` : ""}`}
+                            </span>
+                            <span className="font-mono">
+                              {Math.round(((backdropStatus.loaded + backdropStatus.failed) / backdropStatus.total) * 100)}%
+                            </span>
+                          </div>
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-800">
+                            <div
+                              className={`h-full transition-all ${backdropStatus.loading ? "bg-blue-600" : "bg-emerald-600"}`}
+                              style={{
+                                width: `${Math.min(100, Math.round(((backdropStatus.loaded + backdropStatus.failed) / backdropStatus.total) * 100))}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -639,7 +772,83 @@ export default function SettingsModal() {
             )}
           </div>
 
-          {/* Section 5: API-avaimet */}
+          {/* Section 5: Merkkien & mittausten värit */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/50 transition-colors dark:border-zinc-800 dark:bg-zinc-900/40">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between px-4 py-3 font-semibold text-slate-800 dark:text-zinc-200"
+              onClick={() => toggleSection("colors")}
+              aria-expanded={openSections.colors}
+            >
+              <div className="flex items-center gap-2">
+                <MapPin size={18} className="text-blue-600 dark:text-blue-400" />
+                <span>Merkkien & Mittausten Värit</span>
+              </div>
+              {openSections.colors ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+            </button>
+            {openSections.colors && (
+              <div className="space-y-4 border-t border-slate-200 p-4 dark:border-zinc-800">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {[
+                    {
+                      heading: "Merkit",
+                      items: [
+                        ["savedMarkerColor", "Tallennettujen merkkien väri", "#dc2626"],
+                        ["unsavedMarkerColor", "Tallentamattoman merkin väri", "#f97316"],
+                      ] as const,
+                    },
+                    {
+                      heading: "Mittaukset",
+                      items: [
+                        ["savedMeasurementColor", "Tallennettujen mittausten väri", "#16a34a"],
+                        ["unsavedMeasurementColor", "Tallentamattoman mittauksen väri", "#2563eb"],
+                      ] as const,
+                    },
+                  ].map((group) => (
+                    <div key={group.heading} className="space-y-3 rounded-lg border border-slate-200 bg-white/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+                      <div className="text-xs font-semibold text-slate-700 dark:text-zinc-300">{group.heading}</div>
+                      {group.items.map(([key, label, fallback]) => {
+                        const value = draft[key] || fallback;
+                        return (
+                          <label key={key} className="block">
+                            <span className="text-xs font-medium text-slate-600 dark:text-zinc-400">{label}</span>
+                            <div className="mt-1 flex items-center gap-2">
+                              <input
+                                type="color"
+                                className="h-8 w-12 cursor-pointer rounded border border-slate-300 bg-white dark:border-zinc-700 dark:bg-zinc-900"
+                                value={value}
+                                onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+                              />
+                              <span className="font-mono text-xs">{value}</span>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium hover:bg-slate-100 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                    onClick={() =>
+                      setDraft({
+                        ...draft,
+                        savedMarkerColor: "#dc2626",
+                        unsavedMarkerColor: "#f97316",
+                        savedMeasurementColor: "#16a34a",
+                        unsavedMeasurementColor: "#2563eb",
+                      })
+                    }
+                  >
+                    Palauta oletusvärit
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Section 6: API-avaimet */}
           <div className="rounded-xl border border-slate-200 bg-slate-50/50 transition-colors dark:border-zinc-800 dark:bg-zinc-900/40">
             <button
               type="button"

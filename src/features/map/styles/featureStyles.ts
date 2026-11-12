@@ -15,10 +15,19 @@ export const lineStyle = (color: string) =>
     image: new CircleStyle({ radius: 5, fill: new Fill({ color }), stroke: new Stroke({ color: "#fff", width: 2 }) }),
   });
 
-export const measurementStyle = (color: string, showSegments: boolean, units = "metric") => {
-  const base = lineStyle(color);
+export const measurementStyle = (
+  color: string | { saved: string; unsaved: string },
+  showSegments: boolean,
+  units = "metric",
+) => {
+  const savedColor = typeof color === "string" ? color : color.saved;
+  const unsavedColor = typeof color === "string" ? color : color.unsaved;
+  const savedBase = lineStyle(savedColor);
+  const unsavedBase = lineStyle(unsavedColor);
   return (feature: any) => {
     const geom = feature?.getGeometry?.();
+    const isSaved = feature?.get?.("id") !== undefined && feature?.get?.("id") !== null;
+    const base = isSaved ? savedBase : unsavedBase;
     if (!geom) return base;
     const styles: Style[] = [base];
 

@@ -1,22 +1,4 @@
-type NominatimReverseResponse = {
-  name?: string;
-  display_name?: string;
-  address?: {
-    road?: string;
-    pedestrian?: string;
-    footway?: string;
-    path?: string;
-    house_number?: string;
-    neighbourhood?: string;
-    suburb?: string;
-    quarter?: string;
-    village?: string;
-    hamlet?: string;
-    town?: string;
-    city?: string;
-    municipality?: string;
-  };
-};
+import { reverseNominatim, type NominatimReversePayload } from "./nominatimService";
 
 function extractLonLat(geojson: string): [number, number] | null {
   try {
@@ -40,7 +22,7 @@ function extractLonLat(geojson: string): [number, number] | null {
   }
 }
 
-function pickPlaceLabel(data: NominatimReverseResponse, fallback: string): string {
+function pickPlaceLabel(data: NominatimReversePayload, fallback: string): string {
   const named = data.name?.trim();
   if (named) return named;
   const addr = data.address;
@@ -77,12 +59,7 @@ export async function resolveNearestPlaceName(
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), 3500);
   try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=fi&lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lon))}&zoom=18`,
-      { signal: controller.signal },
-    );
-    if (!res.ok) return fallback;
-    const data = (await res.json()) as NominatimReverseResponse;
+    const data = await reverseNominatim(lat, lon, { zoom: 18, signal: controller.signal });
     return pickPlaceLabel(data, fallback);
   } catch {
     return fallback;

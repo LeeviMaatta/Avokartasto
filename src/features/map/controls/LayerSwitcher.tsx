@@ -475,6 +475,7 @@ export default function LayerSwitcher() {
       lantmaterietUsername: settings.lantmaterietUsername ?? "",
       lantmaterietPassword: settings.lantmaterietPassword ?? "",
       owmKey: settings.owmKey ?? "",
+      copernicusInstanceId: settings.copernicusInstanceId ?? "",
     });
     let savedView: LayerViewDraft = {
       zoomOffset: source ? Math.max(-8, Math.min(8, source.view_zoom_offset || 0)) : 0,
@@ -512,17 +513,18 @@ export default function LayerSwitcher() {
     await useMapStore.getState().setSettings({
       ...settings,
       ...apiDraft,
-      googleKey: "",
       layerViewSettings: JSON.stringify(all),
     });
   };
 
   const saveSource = async () => {
     if (!editDraft) return;
-    const address = (editDraft.url || editDraft.base_path).trim();
+    const isLocal = editDraft.api_type === "local_tile";
+    const base_path = isLocal ? editDraft.base_path.trim() : "";
+    const url = isLocal ? "" : editDraft.url.trim();
     await updateSourceConfig(editDraft.id, {
       name: editDraft.name.trim() || "Karttataso",
-      base_path: (editDraft.base_path || address).trim(),
+      base_path,
       pattern: editDraft.pattern.trim() || "{z}/{x}/{y}.png",
       projection: editDraft.projection,
       role: editDraft.role,
@@ -534,7 +536,7 @@ export default function LayerSwitcher() {
       tile_size: Math.max(64, Math.min(2048, Math.round(editDraft.tile_size))),
       layer_name: editDraft.layer_name.trim(),
       style: editDraft.style.trim(),
-      url: address,
+      url,
       params: editDraft.params,
       auth: editDraft.auth,
       note: editDraft.note,
@@ -732,7 +734,7 @@ export default function LayerSwitcher() {
             onContextMenu={(e) => { e.preventDefault(); setMenu(null); }}
           />
           <div
-            className="fixed z-[80] min-w-48 max-w-64 rounded-xl border border-slate-200 bg-white/95 py-1 text-xs text-slate-800 shadow-2xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100"
+            className="fixed z-[80] min-w-48 max-w-64 overflow-hidden rounded-xl border border-slate-200 bg-white/95 py-1 text-xs text-slate-800 shadow-2xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100"
             style={{ left: menu.x, top: menu.y }}
           >
             <div className="px-3 py-1.5 font-semibold text-slate-500 dark:text-zinc-400 border-b border-slate-100 dark:border-zinc-800/80 truncate">

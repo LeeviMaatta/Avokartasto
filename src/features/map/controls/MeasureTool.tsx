@@ -24,9 +24,12 @@ export default function MeasureTool() {
   const measure = useMapStore((s) => s.measure);
   const bumpFeatures = useMapStore((s) => s.bumpFeatures);
   const editingFeatureId = useMapStore((s) => s.editingFeatureId);
+  const activeUnsavedMeasurementId = useMapStore((s) => s.activeUnsavedMeasurementId);
   const units = useMapStore((s) => s.settings.measurementUnits ?? "metric");
   const areaUnit = useMapStore((s) => s.settings.areaUnit ?? "auto");
   const measurementType = useMapStore((s) => s.settings.measurementType ?? "distance");
+  const savedMarkerColor = useMapStore((s) => s.settings.savedMarkerColor || "#dc2626");
+  const savedMeasurementColor = useMapStore((s) => s.settings.savedMeasurementColor || "#16a34a");
   const markerFoldersSetting = useMapStore((s) => s.settings.markerFolders);
   const rawOverlayOpacity = Number(useMapStore((s) => s.settings.uiOverlayOpacity ?? "1"));
   const overlayOpacity = Number.isFinite(rawOverlayOpacity) ? Math.min(1, Math.max(0, rawOverlayOpacity)) : 1;
@@ -53,6 +56,7 @@ export default function MeasureTool() {
 
   useEffect(() => {
     if (selectedFeature?.kind === "measurement") setTitle(selectedFeature.title);
+    else if (!selectedFeature) setTitle("");
   }, [selectedFeature]);
 
   useEffect(() => {
@@ -119,6 +123,7 @@ export default function MeasureTool() {
       setMsg("");
       useMapStore.setState({
         editingFeatureId: feature.id,
+        activeUnsavedMeasurementId: null,
         measure: { length, geojson: feature.geojson, kind },
         profile: null,
         profileVisible: false,
@@ -143,17 +148,16 @@ export default function MeasureTool() {
     setMarkerBusy(true);
     setMsg("");
     try {
-      const offline = useMapStore.getState().settings.dataFetchMode === "offline";
       const resolvedTitle =
         markerDraft.title.trim() ||
-        (await resolveNearestPlaceName(markerDraft.geojson, "Merkki", offline));
+        (await resolveNearestPlaceName(markerDraft.geojson, "Merkki"));
       const args = [
         resolvedTitle,
         markerDraft.description.trim() || null,
         "POINT",
         markerDraft.geojson,
         markerDraft.folderId,
-        markerDraft.color,
+        savedMarkerColor,
         null,
       ] as const;
       if (markerDraft.id !== undefined) await updateFeature(markerDraft.id, ...args);
@@ -215,12 +219,12 @@ export default function MeasureTool() {
     );
   }
 
-  if (tool !== "measure" && !selectedFeature) return null;
+  if (tool !== "measure" && !selectedFeature && !activeUnsavedMeasurementId) return null;
 
   if (selectedFeature?.kind === "marker" && tool !== "measure") {
     return (
       <div className="absolute left-2 right-2 top-16 sm:top-20 z-10 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs sm:text-sm text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:flex-nowrap sm:px-4" style={{ opacity: overlayOpacity }}>
-        <span className="flex items-center gap-1.5 font-semibold text-slate-900 dark:text-white"><MapPin size={16} className="text-red-500" /> Merkki</span>
+        <span className="flex items-center gap-1.5 font-semibold text-slate-900 dark:text-white"><MapPin size={16} style={{ color: savedMarkerColor }} /> Merkki</span>
         <span className="max-w-48 truncate font-medium">{selectedFeature.title}</span>
         <button className="flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100 dark:border-zinc-700 dark:hover:bg-zinc-800 transition" onClick={() => {
           setMarkerDraft({
@@ -254,10 +258,9 @@ export default function MeasureTool() {
     if (!measure) return;
     setMsg("");
     try {
-      const offline = useMapStore.getState().settings.dataFetchMode === "offline";
       const resolvedTitle =
         title.trim() ||
-        (await resolveNearestPlaceName(measure.geojson, "Mittaus", offline));
+        (await resolveNearestPlaceName(measure.geojson, "Mittaus"));
       const featureType = measure.kind === "area" ? "POLYGON" : "LINESTRING";
       if (editingFeatureId) {
         await updateFeature(
@@ -267,14 +270,18 @@ export default function MeasureTool() {
           featureType,
           measure.geojson,
           selectedFeature?.folder_id ?? "",
-          selectedFeature?.color || "#dc2626",
+          savedMeasurementColor,
         );
       } else {
-        await addFeature(resolvedTitle, null, featureType, measure.geojson);
+        await addFeature(resolvedTitle, null, featureType, measure.geojson, "", savedMeasurementColor);
       }
       bumpFeatures();
-      window.dispatchEvent(new Event("clear-unsaved-measurements"));
-      useMapStore.setState({ measure: null, profile: null, profileVisible: false, profileError: null, editingFeatureId: null, selectedFeature: null });
+      window.dispatchEvent(
+        new CustomEvent("remove-measurement-feature", {
+          detail: editingFeatureId !== null ? { savedId: editingFeatureId } : { unsavedId: activeUnsavedMeasurementId },
+        }),
+      );
+      useMapStore.setState({ measure: null, profile: null, profileVisible: false, profileError: null, editingFeatureId: null, activeUnsavedMeasurementId: null, selectedFeature: null });
       setTitle("");
       setMsg("Tallennettu");
     } catch (error) {
@@ -282,9 +289,17 @@ export default function MeasureTool() {
     }
   };
 
-  const clearUnsaved = () => {
-    window.dispatchEvent(new Event("clear-unsaved-measurements"));
-    useMapStore.setState({ measure: null, profile: null, profileVisible: false, profileError: null, editingFeatureId: null, selectedFeature: null });
+  const resetActiveMeasurementState = (closeTool = false) => {
+    useMapStore.setState({
+      ...(closeTool ? { tool: "none" as const } : {}),
+      measure: null,
+      profile: null,
+      profileVisible: false,
+      profileError: null,
+      editingFeatureId: null,
+      activeUnsavedMeasurementId: null,
+      selectedFeature: null,
+    });
     setMsg("");
     setTitle("");
   };
@@ -295,22 +310,25 @@ export default function MeasureTool() {
       if (!(await requestConfirmation(`Haluatko varmasti poistaa mittauksen "${label}"?`))) return;
       await deleteFeature(editingFeatureId);
       bumpFeatures();
+      window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId: editingFeatureId } }));
+    } else if (activeUnsavedMeasurementId) {
+      window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { unsavedId: activeUnsavedMeasurementId } }));
     }
-    clearUnsaved();
+    resetActiveMeasurementState(false);
   };
 
   const closeMeasureTool = () => {
-    window.dispatchEvent(new Event("clear-unsaved-measurements"));
-    useMapStore.setState({ tool: "none", measure: null, profile: null, profileVisible: false, profileError: null, editingFeatureId: null, selectedFeature: null });
-    setMsg("");
-    setTitle("");
+    if (editingFeatureId !== null) {
+      window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId: editingFeatureId } }));
+    }
+    resetActiveMeasurementState(true);
   };
 
   const chooseType = (nextType: "distance" | "area") => {
-    window.dispatchEvent(new Event("clear-unsaved-measurements"));
-    useMapStore.setState({ measure: null, profile: null, profileVisible: false, profileError: null, editingFeatureId: null });
-    setMsg("");
-    setTitle("");
+    if (editingFeatureId !== null) {
+      window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId: editingFeatureId } }));
+    }
+    resetActiveMeasurementState(false);
     void useMapStore.getState().setSetting("measurementType", nextType);
   };
 

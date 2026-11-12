@@ -43,7 +43,18 @@ export interface MapSource {
   view_magnification: number;
 }
 
-export type SourceFactory = (source: MapSource, settings: Record<string, string>) => BaseLayer | null;
+export interface SourceLayerOptions {
+  /** Cap the maximum tile zoom generated for this layer (used for background fallback layers). */
+  maxZoomCap?: number;
+  /** Override the OpenLayers TileSource LRU cache size for this layer. */
+  cacheSize?: number;
+}
+
+export type SourceFactory = (
+  source: MapSource,
+  settings: Record<string, string>,
+  options?: SourceLayerOptions,
+) => BaseLayer | null;
 
 export const SOURCE_KINDS: Record<ApiType, SourceKind> = {
   xyz: "raster",

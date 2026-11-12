@@ -27,7 +27,7 @@ export interface RouteResult {
  * Purkaa Valhallan (precision=6) tai Googlen (precision=5) polyline-merkkijonon
  * muodossa [lon, lat][].
  */
-function decodePolyline(encoded: string, precision = 6): [number, number][] {
+export function decodePolyline(encoded: string, precision = 6): [number, number][] {
   const factor = Math.pow(10, precision);
   const coords: [number, number][] = [];
   let index = 0;

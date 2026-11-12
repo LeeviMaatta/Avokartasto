@@ -15,6 +15,18 @@ export default function ConfirmDialog() {
     return () => window.removeEventListener("request-confirmation", handleRequest);
   }, []);
 
+  useEffect(() => {
+    if (!confirmation) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        confirmation.resolve(false);
+        setConfirmation(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [confirmation]);
+
   if (!confirmation) return null;
   const close = (answer: boolean) => {
     confirmation.resolve(answer);

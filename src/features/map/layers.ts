@@ -8,13 +8,14 @@ import { buildSourceLayer } from "./sources/registry";
 
 type Settings = Record<string, string>;
 
-const applyLayerViewSettings = (layer: BaseLayer, source: LocalSource): BaseLayer => {
+const applyLayerViewSettings = (layer: BaseLayer, source: LocalSource, maxZoomCap?: number): BaseLayer => {
   const tileSource = layer instanceof TileLayer || layer instanceof VectorTileLayer ? layer.getSource() : null;
   if (!tileSource || !("getTileGridForProjection" in tileSource)) return layer;
   const projection = getProjection("EPSG:3857");
   if (!projection) return layer;
   const tileGrid = tileSource.getTileGridForProjection(projection);
-  const maxZoom = tileGrid?.getResolutions().length ? tileGrid.getResolutions().length - 1 : source.max_zoom;
+  const rawMaxZoom = tileGrid?.getResolutions().length ? tileGrid.getResolutions().length - 1 : source.max_zoom;
+  const maxZoom = maxZoomCap !== undefined ? Math.min(rawMaxZoom, maxZoomCap) : rawMaxZoom;
   const magnification = source.view_magnification > 0 ? source.view_magnification : 1;
   const effectiveOffset = (source.view_zoom_offset || 0) - Math.log2(magnification);
   const initialResolution = 156543.03392804097;
@@ -39,4 +40,22 @@ export function buildLayer(id: string, settings: Settings, sources: LocalSource[
   if (!source || (overlay && source.role !== "overlay") || (!overlay && source.role !== "basemap")) return null;
   const layer = buildSourceLayer(source, settings);
   return layer ? applyLayerViewSettings(layer, source) : null;
+}
+
+/** Builds a background fallback layer capped at `maxZoomCap` so high-zoom panning reuses cached lower-zoom tiles. */
+export function buildBackdropLayer(
+  id: string,
+  settings: Settings,
+  sources: LocalSource[],
+  maxZoomCap = 14,
+): BaseLayer | null {
+  const numericId = sourceId(id);
+  if (numericId === null) return null;
+  const source = sources.find((item) => item.id === numericId);
+  if (!source) return null;
+  const layer = buildSourceLayer(source, settings, {
+    maxZoomCap,
+    cacheSize: settings.tileCache === "0" ? 0 : 1024,
+  });
+  return layer ? applyLayerViewSettings(layer, source, maxZoomCap) : null;
 }

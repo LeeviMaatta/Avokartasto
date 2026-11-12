@@ -25,11 +25,11 @@ import {
   type RouteMode,
   type RoutePoint,
 } from "./routeService";
-import { fetchWithDebug } from "../debug/debugFetch";
-import { inTauri, invokeTauri } from "../../infrastructure/tauri/runtime";
+import { searchNominatim, type NominatimSearchHit } from "../map/sources/nominatimService";
+import { exportGeoJsonFile } from "../../shared/exportFile";
 import { searchSavedMarkers, type MarkerSearchHit } from "../markers/domain/markerSearch";
 
-type SearchHit = { display_name: string; lat: string; lon: string };
+type SearchHit = NominatimSearchHit;
 
 const MODES: { id: RouteMode; label: string; icon: typeof Car }[] = [
   { id: "auto", label: "Auto", icon: Car },
@@ -50,6 +50,7 @@ export default function RouteTool() {
   const clearRoute = useMapStore((s) => s.clearRoute);
   const rawOverlayOpacity = Number(useMapStore((s) => s.settings.uiOverlayOpacity ?? "1"));
   const overlayOpacity = Number.isFinite(rawOverlayOpacity) ? Math.min(1, Math.max(0, rawOverlayOpacity)) : 1;
+  const savedMarkerColor = useMapStore((s) => s.settings.savedMarkerColor ?? "#dc2626");
 
   const [inputs, setInputs] = useState<string[]>([]);
   const [activeSearchIdx, setActiveSearchIdx] = useState<number | null>(null);
@@ -140,14 +141,12 @@ export default function RouteTool() {
     searchAbortRef.current = ac;
     setSearching(true);
     try {
-      const r = await fetchWithDebug(
-        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=fi&q=${encodeURIComponent(q)}`,
-        { signal: ac.signal },
-        "route-geocode",
-      );
-      if (!r.ok) return;
-      const data = (await r.json()) as SearchHit[];
-      if (!ac.signal.aborted && Array.isArray(data)) {
+      const data = await searchNominatim(q, {
+        limit: 5,
+        signal: ac.signal,
+        label: "route-geocode",
+      });
+      if (!ac.signal.aborted) {
         setSearchResults(data);
       }
     } catch {
@@ -205,47 +204,10 @@ export default function RouteTool() {
     const filename = `reitti-${new Date().toISOString().slice(0, 10)}.geojson`;
 
     try {
-      const picker = (window as unknown as {
-        showSaveFilePicker?: (opts: unknown) => Promise<{
-          name: string;
-          createWritable: () => Promise<{ write: (d: string) => Promise<void>; close: () => Promise<void> }>;
-        }>;
-      }).showSaveFilePicker;
-
-      if (typeof picker === "function") {
-        try {
-          const handle = await picker({
-            suggestedName: filename,
-            types: [{ description: "GeoJSON-tiedosto", accept: { "application/geo+json": [".geojson", ".json"] } }],
-          });
-          const w = await handle.createWritable();
-          await w.write(content);
-          await w.close();
-          setExportMsg(`Viety: ${handle.name}`);
-          return;
-        } catch (err) {
-          if (err instanceof DOMException && err.name === "AbortError") return;
-        }
+      const result = await exportGeoJsonFile(filename, content);
+      if (result.status === "saved") {
+        setExportMsg(`Viety: ${result.path}`);
       }
-
-      if (inTauri()) {
-        const savedPath = await invokeTauri<string>("save_export_file", { filename, content });
-        setExportMsg(`Viety: ${savedPath}`);
-        return;
-      }
-
-      const url = URL.createObjectURL(new Blob([content], { type: "application/geo+json" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      link.style.display = "none";
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => {
-        link.remove();
-        URL.revokeObjectURL(url);
-      }, 5000);
-      setExportMsg(`Viety: ${filename}`);
     } catch (err) {
       setExportMsg(`Vienti epäonnistui: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -253,7 +215,7 @@ export default function RouteTool() {
 
   return (
     <div
-      className="absolute right-2 top-14 z-30 flex max-h-[calc(100vh-5rem)] w-[min(22rem,calc(100vw-1rem))] flex-col rounded-xl border border-slate-200 bg-white/95 text-xs text-slate-800 shadow-2xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 sm:right-3"
+      className="absolute right-2 top-14 z-30 flex max-h-[calc(100vh-5rem)] w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white/95 text-xs text-slate-800 shadow-2xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 sm:right-3"
       style={{ opacity: overlayOpacity }}
     >
       {/* Otsikko */}
@@ -375,7 +337,8 @@ export default function RouteTool() {
               </div>
 
               {activeSearchIdx === idx && (markerHits.length > 0 || searchResults.length > 0 || searching) && (
-                <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+                <div className="mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+                  <div className="max-h-40 overflow-y-auto">
                   {searching && (
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-slate-500">
                       <Loader2 size={12} className="animate-spin" /> Haetaan...
@@ -389,7 +352,7 @@ export default function RouteTool() {
                       className="flex w-full items-center justify-between gap-2 border-b border-slate-100 px-2.5 py-1.5 text-left text-[11px] hover:bg-slate-100 last:border-b-0 dark:border-zinc-800 dark:hover:bg-zinc-800"
                     >
                       <div className="flex min-w-0 items-center gap-1.5">
-                        <MapPin size={12} className="shrink-0" style={{ color: hit.color }} />
+                        <MapPin size={12} className="shrink-0" style={{ color: savedMarkerColor }} />
                         <span className="truncate font-medium">{hit.title}</span>
                       </div>
                       <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 text-[9px] text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">
@@ -407,6 +370,7 @@ export default function RouteTool() {
                       <div className="truncate">{hit.display_name}</div>
                     </button>
                   ))}
+                  </div>
                 </div>
               )}
             </div>

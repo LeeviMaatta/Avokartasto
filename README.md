@@ -9,7 +9,7 @@
 ## Käynnistys
 ```
 npm install
-npx tauri icon app-icon.png     # luo src-tauri/icons (vaihda halutessasi oma 1024x1024 PNG)
+npm run icons                   # luo src-tauri/icons tiedostosta app-icon.png
 npm run tauri dev               # kehitystila (ensimmäinen Rust-käännös kestää useita minuutteja)
 npm run tauri build             # asennuspaketti: src-tauri/target/release/bundle/
 ```
@@ -19,6 +19,7 @@ npm run tauri build             # asennuspaketti: src-tauri/target/release/bundl
 - Maanmittauslaitos: https://www.maanmittauslaitos.fi/rajapinnat/api-avaimen-ohje
 - Lantmäteriet Topo: Lantmäteriet-käyttäjän sähköposti ja salasana
 - OpenWeatherMap: openweathermap.org/api
+- Copernicus Data Space: dataspace.copernicus.eu (WMS/WFS Instance ID)
 
 API-avaimet ja Lantmäteriet-tunnukset tallennetaan Windowsin suojattuun
 käyttöjärjestelmän tunnussäilöön, eivät sovelluksen SQLite-tietokantaan.

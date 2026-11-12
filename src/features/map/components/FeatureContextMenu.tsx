@@ -9,6 +9,10 @@ import { Trash2, Pencil } from "lucide-react";
 import { useMapStore } from "../../../store/mapStore";
 import { deleteFeature } from "../../../infrastructure/tauriBridge";
 import { requestConfirmation } from "../../../app/confirmation";
+import {
+  clearSavedEditFeatures,
+  ensureUnsavedMeasurementId,
+} from "../../measurements/domain/measurementSource";
 
 type ContextMenuState = { feature: Feature; x: number; y: number; savedId?: number };
 
@@ -53,17 +57,18 @@ export default function FeatureContextMenu({ value, opacity, measureSource, prof
             onClose();
             return;
           }
+          const kind = geometry instanceof Polygon ? "area" : "distance";
+          const length = kind === "area" ? getArea(geometry, { projection: "EPSG:3857" }) : geometry instanceof LineString ? getLength(geometry, { projection: "EPSG:3857" }) : 0;
           if (value.savedId) {
-            measureSource.clear();
+            clearSavedEditFeatures(measureSource);
             const editable = value.feature.clone();
             editable.set("id", value.savedId);
             measureSource.addFeature(editable);
-            const kind = geometry instanceof Polygon ? "area" : "distance";
-            const length = kind === "area" ? getArea(geometry, { projection: "EPSG:3857" }) : geometry instanceof LineString ? getLength(geometry, { projection: "EPSG:3857" }) : 0;
             useMapStore.setState({
               pendingMarker: null,
               markerEditorOpen: false,
               editingFeatureId: value.savedId,
+              activeUnsavedMeasurementId: null,
               measure: { length, geojson, kind },
               profile: null,
               profileVisible: false,
@@ -79,7 +84,19 @@ export default function FeatureContextMenu({ value, opacity, measureSource, prof
               },
             });
           } else {
-            useMapStore.setState({ tool: "measure" });
+            clearSavedEditFeatures(measureSource);
+            const uid = ensureUnsavedMeasurementId(value.feature);
+            useMapStore.setState({
+              pendingMarker: null,
+              markerEditorOpen: false,
+              editingFeatureId: null,
+              activeUnsavedMeasurementId: uid,
+              measure: { length, geojson, kind },
+              profile: null,
+              profileVisible: false,
+              profileError: null,
+              selectedFeature: null,
+            });
           }
           onClose();
         }}
@@ -97,12 +114,28 @@ export default function FeatureContextMenu({ value, opacity, measureSource, prof
             if (value.savedId) {
               await deleteFeature(value.savedId);
               useMapStore.getState().bumpFeatures();
-              if (!isPoint) measureSource.clear();
+              if (!isPoint) clearSavedEditFeatures(measureSource, value.savedId);
             } else {
               measureSource.removeFeature(value.feature);
             }
-            profileRequest.current += 1;
-            useMapStore.setState({ measure: null, profile: null, profileVisible: false, profileError: null, editingFeatureId: null, selectedFeature: null });
+            const state = useMapStore.getState();
+            const deletedActiveSaved = value.savedId !== undefined && state.editingFeatureId === value.savedId;
+            const deletedActiveUnsaved =
+              value.savedId === undefined &&
+              Boolean(value.feature.get("unsavedId")) &&
+              state.activeUnsavedMeasurementId === value.feature.get("unsavedId");
+            if (deletedActiveSaved || deletedActiveUnsaved) {
+              profileRequest.current += 1;
+              useMapStore.setState({
+                measure: null,
+                profile: null,
+                profileVisible: false,
+                profileError: null,
+                editingFeatureId: null,
+                activeUnsavedMeasurementId: null,
+                selectedFeature: null,
+              });
+            }
             onClose();
           }}
         >

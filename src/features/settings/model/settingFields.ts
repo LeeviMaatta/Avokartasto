@@ -21,7 +21,7 @@ export const SETTING_TOGGLES: [string, string][] = [
   ["darkMapTiles", "Käytä tummaa tilaa myös karttapohjille (Yökartta)"],
   ["enableRotation", "Salli kartan pyörittäminen"],
   ["enableDoubleClickZoom", "Zoomaa kaksoisklikkauksella"],
-  ["removePendingMarkerOnDblClick", "Poista tallentamaton merkki kaksoisklikkauksella"],
+  ["removePendingMarkerOnDblClick", "Poista tallentamaton merkki ja lopeta mittauksen muokkaus kaksoisklikkauksella"],
   ["kineticPanning", "Sulava kartan liukuminen (Inertia)"],
   ["showSegmentLengths", "Näytä mittausviivan osapituudet"],
   ["showSunTimes", "Auringon nousu- ja laskuajat"],
@@ -33,7 +33,12 @@ export const SETTING_TOGGLES: [string, string][] = [
 
 export const SETTING_VALUE_KEYS = [
   "dataFetchMode",
+  "backdropLayerId",
   "crosshairColor",
+  "savedMarkerColor",
+  "unsavedMarkerColor",
+  "savedMeasurementColor",
+  "unsavedMeasurementColor",
   "measurementUnits",
   "measurementType",
   "areaUnit",

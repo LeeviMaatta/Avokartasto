@@ -33,6 +33,11 @@ import Kinetic from "ol/Kinetic";
 import { LocateFixed } from "lucide-react";
 import { requestConfirmation } from "../../app/confirmation";
 import { lineStyle, markerStyle, measurementStyle } from "./styles/featureStyles";
+import {
+  clearSavedEditFeatures,
+  ensureUnsavedMeasurementId,
+  removeUnsavedMeasurementById,
+} from "../measurements/domain/measurementSource";
 import { useMapMeasurementInteractions } from "./hooks/useMapMeasurementInteractions";
 import { useMapFeatures } from "./hooks/useMapFeatures";
 import { useMapLayers } from "./hooks/useMapLayers";
@@ -60,6 +65,7 @@ export default function MapContainer() {
 
   const [locating, setLocating] = useState(false);
   const [userLoc, setUserLoc] = useState<[number, number] | null>(null);
+  const [geoError, setGeoError] = useState<string | null>(null);
 
   const basemap = useMapStore((s) => s.basemap);
   const overlays = useMapStore((s) => s.overlays);
@@ -73,6 +79,7 @@ export default function MapContainer() {
   const pendingMarker = useMapStore((s) => s.pendingMarker);
   const featuresVersion = useMapStore((s) => s.featuresVersion);
   const editingFeatureId = useMapStore((s) => s.editingFeatureId);
+  const activeUnsavedMeasurementId = useMapStore((s) => s.activeUnsavedMeasurementId);
   const hiddenFeaturesSetting = useMapStore((s) => s.settings.hiddenFeatures);
   
   const showCenterCrosshair = settings.showCenterCrosshair !== "0";
@@ -91,8 +98,13 @@ export default function MapContainer() {
     let saveViewTimeout: number | null = null;
     let pendingCursor: [number, number] | null = null;
     const preventBrowserContextMenu = (event: MouseEvent) => event.preventDefault();
-    const clearUnsavedMeasurements = () => {
-      measureSrc.current.clear();
+    const removeMeasurementFeature = (event: Event) => {
+      const detail = (event as CustomEvent<{ savedId?: number; unsavedId?: string | null }>).detail;
+      if (detail?.savedId !== undefined && detail?.savedId !== null) {
+        clearSavedEditFeatures(measureSrc.current, detail.savedId);
+      } else if (detail?.unsavedId) {
+        removeUnsavedMeasurementById(measureSrc.current, detail.unsavedId);
+      }
       profileRequest.current += 1;
     };
     const loadLineProfile = async (geom: LineString) => {
@@ -117,7 +129,7 @@ export default function MapContainer() {
           dataProjection: "EPSG:4326",
           featureProjection: "EPSG:3857",
         });
-        measureSrc.current.clear();
+        clearSavedEditFeatures(measureSrc.current);
         const editable = new Feature({ geometry });
         editable.set("id", detail.id);
         measureSrc.current.addFeature(editable);
@@ -129,12 +141,15 @@ export default function MapContainer() {
       }
     };
     const handleSearchLocation = (event: Event) => {
-      const detail = (event as CustomEvent<{ lat: number; lon: number }>).detail;
+      const detail = (event as CustomEvent<{ lat: number; lon: number; zoom?: number }>).detail;
       if (!detail || !Number.isFinite(detail.lat) || !Number.isFinite(detail.lon)) return;
-      map.getView().animate({ center: fromLonLat([detail.lon, detail.lat]), zoom: Math.max(map.getView().getZoom() ?? 10, 14), duration: 500 });
+      const targetZoom = typeof detail.zoom === "number" && Number.isFinite(detail.zoom)
+        ? detail.zoom
+        : Math.max(map.getView().getZoom() ?? 10, 14);
+      map.getView().animate({ center: fromLonLat([detail.lon, detail.lat]), zoom: targetZoom, duration: 500 });
     };
     mapElement?.addEventListener("contextmenu", preventBrowserContextMenu);
-    window.addEventListener("clear-unsaved-measurements", clearUnsavedMeasurements);
+    window.addEventListener("remove-measurement-feature", removeMeasurementFeature);
     window.addEventListener("open-measurement-editor", handleOpenMeasurementEditor);
 
     const map = new OlMap({
@@ -158,12 +173,21 @@ export default function MapContainer() {
                 }),
               });
             }
-            const { uiStyle, theme } = useMapStore.getState().settings;
+            const {
+              uiStyle,
+              theme,
+              savedMarkerColor = "#dc2626",
+              unsavedMarkerColor = "#f97316",
+              savedMeasurementColor = "#16a34a",
+            } = useMapStore.getState().settings;
             const resolvedUiStyle = uiStyle === "classic" || uiStyle === "retro" ? uiStyle : "modern";
             const resolvedTheme = theme === "dark" ? "dark" : "light";
+            if (feature.get("isPending")) {
+              return markerStyle(unsavedMarkerColor, resolvedUiStyle, resolvedTheme);
+            }
             return feature.getGeometry()?.getType() === "Point"
-              ? markerStyle(String(feature.get("color") || "#dc2626"), resolvedUiStyle, resolvedTheme)
-              : lineStyle(String(feature.get("color") || "#dc2626"));
+              ? markerStyle(savedMarkerColor, resolvedUiStyle, resolvedTheme)
+              : lineStyle(savedMeasurementColor);
           },
           zIndex: 90,
         }),
@@ -171,7 +195,14 @@ export default function MapContainer() {
           const mLayer = new VectorLayer({
             className: "ol-vector-layer",
             source: measureSrc.current,
-            style: measurementStyle("#2563eb", settings.showSegmentLengths !== "0", settings.measurementUnits ?? "metric"),
+            style: measurementStyle(
+              {
+                saved: settings.savedMeasurementColor || "#16a34a",
+                unsaved: settings.unsavedMeasurementColor || "#2563eb",
+              },
+              settings.showSegmentLengths !== "0",
+              settings.measurementUnits ?? "metric",
+            ),
             zIndex: 100,
           });
           measureLayerRef.current = mLayer;
@@ -216,6 +247,7 @@ export default function MapContainer() {
       initialDblClickZoom.setActive(settings.enableDoubleClickZoom === "1");
     }
     window.addEventListener("map-search-location", handleSearchLocation);
+    window.addEventListener("map-focus", handleSearchLocation);
     const updateCoords = () => {
       const center = map.getView().getCenter();
       if (!center) return;
@@ -280,13 +312,14 @@ export default function MapContainer() {
       if (clickedFeature) {
         const feature = clickedFeature;
         const geom = feature.getGeometry();
-        const saved = featSrc.current.hasFeature(feature) && feature !== pendingMarkerFeature.current;
-        const savedId = saved ? Number(feature.get("id")) : null;
+        const rawId = feature.get("id");
+        const savedId = feature !== pendingMarkerFeature.current && rawId !== undefined && rawId !== null ? Number(rawId) : null;
+        const saved = savedId !== null && Number.isFinite(savedId);
         if (saved && geom instanceof Point) {
-          measureSrc.current.clear();
+          clearSavedEditFeatures(measureSrc.current);
           useMapStore.setState({
             selectedFeature: {
-              id: savedId!,
+              id: savedId,
               kind: "marker",
               title: String(feature.get("title") || "Merkki"),
               description: feature.get("description") ?? null,
@@ -295,6 +328,7 @@ export default function MapContainer() {
               geojson: new GeoJSON().writeGeometry(geom, { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" }),
             },
             editingFeatureId: null,
+            activeUnsavedMeasurementId: null,
             measure: null,
             profile: null,
             profileVisible: false,
@@ -307,11 +341,15 @@ export default function MapContainer() {
         const kind = geom instanceof Polygon ? "area" : "distance";
         const length = kind === "area" ? getArea(geom, { projection: "EPSG:3857" }) : getLength(geom, { projection: "EPSG:3857" });
         const geojson = new GeoJSON().writeGeometry(geom, { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" });
-        if (saved && savedId !== null) {
-          measureSrc.current.clear();
-          const editable = new Feature({ geometry: geom.clone() });
+        let nextUnsavedId: string | null = null;
+        if (saved) {
+          clearSavedEditFeatures(measureSrc.current);
+          const editable = feature.clone();
           editable.set("id", savedId);
           measureSrc.current.addFeature(editable);
+        } else {
+          clearSavedEditFeatures(measureSrc.current);
+          nextUnsavedId = ensureUnsavedMeasurementId(feature);
         }
         useMapStore.setState({
           pendingMarker: null,
@@ -320,8 +358,9 @@ export default function MapContainer() {
           profile: null,
           profileVisible: false,
           profileError: null,
-          editingFeatureId: saved && savedId !== null ? savedId : null,
-          selectedFeature: saved && savedId !== null
+          editingFeatureId: saved ? savedId : null,
+          activeUnsavedMeasurementId: saved ? null : nextUnsavedId,
+          selectedFeature: saved
             ? {
                 id: savedId,
                 kind: "measurement",
@@ -340,9 +379,25 @@ export default function MapContainer() {
       }
     });
 
-    const clearPendingMarkerOnDblClick = () => {
+    const handleDblClickReset = () => {
       const state = useMapStore.getState();
       if (state.settings.removePendingMarkerOnDblClick === "0") return false;
+      if (state.editingFeatureId !== null || (state.activeUnsavedMeasurementId !== null && state.tool !== "measure")) {
+        if (state.editingFeatureId !== null) {
+          clearSavedEditFeatures(measureSrc.current);
+        }
+        profileRequest.current += 1;
+        useMapStore.setState({
+          editingFeatureId: null,
+          activeUnsavedMeasurementId: null,
+          measure: null,
+          selectedFeature: null,
+          profile: null,
+          profileVisible: false,
+          profileError: null,
+        });
+        return true;
+      }
       if (state.tool === "measure") return false;
       if (!state.pendingMarker && !pendingMarkerFeature.current) return false;
       if (pendingMarkerFeature.current) {
@@ -355,7 +410,7 @@ export default function MapContainer() {
 
     map.on("dblclick", (e) => {
       if (e.originalEvent instanceof MouseEvent && e.originalEvent.button !== 0) return;
-      if (clearPendingMarkerOnDblClick()) {
+      if (handleDblClickReset()) {
         e.preventDefault();
         return false;
       }
@@ -365,7 +420,7 @@ export default function MapContainer() {
     const viewport = map.getViewport();
     const handleDblClick = (e: MouseEvent) => {
       if (e.button !== 0) return;
-      if (clearPendingMarkerOnDblClick()) {
+      if (handleDblClickReset()) {
         e.preventDefault();
         e.stopPropagation();
       }
@@ -380,7 +435,7 @@ export default function MapContainer() {
         const feature = feat as Feature;
         if (measureSrc.current.hasFeature(feature) || featSrc.current.hasFeature(feature)) {
           clickedFeature = feat as Feature;
-          if (featSrc.current.hasFeature(feature) && feature !== pendingMarkerFeature.current) savedId = Number(feature.get("id"));
+          if (feature !== pendingMarkerFeature.current && feature.get("id") != null) savedId = Number(feature.get("id"));
           return true;
         }
       }, { hitTolerance: 12 });
@@ -428,9 +483,10 @@ export default function MapContainer() {
       if (centerRafId !== null) window.cancelAnimationFrame(centerRafId);
       if (saveViewTimeout !== null) window.clearTimeout(saveViewTimeout);
       mapElement?.removeEventListener("contextmenu", preventBrowserContextMenu);
-      window.removeEventListener("clear-unsaved-measurements", clearUnsavedMeasurements);
+      window.removeEventListener("remove-measurement-feature", removeMeasurementFeature);
       window.removeEventListener("open-measurement-editor", handleOpenMeasurementEditor);
       window.removeEventListener("map-search-location", handleSearchLocation);
+      window.removeEventListener("map-focus", handleSearchLocation);
       if (viewRestored.current) {
         const view = map.getView();
         const center = view.getCenter();
@@ -642,8 +698,22 @@ export default function MapContainer() {
     if (!measureLayerRef.current) return;
     const showSegments = settings.showSegmentLengths !== "0";
     const units = settings.measurementUnits ?? "metric";
-    measureLayerRef.current.setStyle(measurementStyle("#2563eb", showSegments, units));
-  }, [settings.showSegmentLengths, settings.measurementUnits]);
+    measureLayerRef.current.setStyle(
+      measurementStyle(
+        {
+          saved: settings.savedMeasurementColor || "#16a34a",
+          unsaved: settings.unsavedMeasurementColor || "#2563eb",
+        },
+        showSegments,
+        units,
+      ),
+    );
+  }, [
+    settings.showSegmentLengths,
+    settings.measurementUnits,
+    settings.savedMeasurementColor,
+    settings.unsavedMeasurementColor,
+  ]);
 
   useEffect(() => {
     if (userLocFeatureRef.current) {
@@ -661,8 +731,9 @@ export default function MapContainer() {
   }, [userLoc]);
 
   const handleLocateUser = () => {
+    setGeoError(null);
     if (!navigator.geolocation) {
-      alert("Selaimesi tai järjestelmäsi ei tue paikannusta.");
+      setGeoError("Järjestelmä ei tue paikannusta.");
       return;
     }
     setLocating(true);
@@ -683,7 +754,12 @@ export default function MapContainer() {
       },
       (err) => {
         setLocating(false);
-        console.warn("Paikannus epäonnistui:", err);
+        recordDebugEvent("geolocation", err.message || "Geolocation failed", "warning");
+        setGeoError(
+          err.code === err.PERMISSION_DENIED
+            ? "Sijainnin käyttö estetty. Salli sijainti käyttöjärjestelmän asetuksista."
+            : "Oman sijainnin haku epäonnistui.",
+        );
       },
       { enableHighAccuracy: true, timeout: 10000 },
     );
@@ -715,7 +791,13 @@ export default function MapContainer() {
 
   useEffect(() => {
     featSrc.current.changed();
-  }, [settings.uiStyle, settings.theme]);
+  }, [
+    settings.uiStyle,
+    settings.theme,
+    settings.savedMarkerColor,
+    settings.unsavedMarkerColor,
+    settings.savedMeasurementColor,
+  ]);
 
   useEffect(() => {
     if (pendingMarkerFeature.current) {
@@ -725,7 +807,7 @@ export default function MapContainer() {
     if (!pendingMarker || !mapRef.current) return;
     const feature = new Feature({
       geometry: new Point(fromLonLat(pendingMarker)),
-      color: "#dc2626",
+      isPending: true,
     });
     featSrc.current.addFeature(feature);
     pendingMarkerFeature.current = feature;
@@ -788,6 +870,7 @@ export default function MapContainer() {
     tool,
     measurementType: settings.measurementType ?? "distance",
     editingFeatureId,
+    activeUnsavedMeasurementId,
   });
 
   return (
@@ -804,6 +887,12 @@ export default function MapContainer() {
       {showLayerErrors && baseLayerError && (
         <div className="absolute left-3 right-3 top-3 z-30 rounded bg-red-700 px-3 py-2 text-xs text-white shadow-lg" style={{ opacity: overlayOpacity }}>
           Karttatason lataus: {baseLayerError}
+        </div>
+      )}
+      {geoError && (
+        <div className="absolute bottom-14 right-3 z-30 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50/95 px-3 py-1.5 text-xs text-amber-900 shadow-lg backdrop-blur dark:border-amber-700/60 dark:bg-zinc-900/95 dark:text-amber-300" style={{ opacity: overlayOpacity }}>
+          <span>{geoError}</span>
+          <button type="button" onClick={() => setGeoError(null)} className="font-semibold underline hover:opacity-80">Sulje</button>
         </div>
       )}
 

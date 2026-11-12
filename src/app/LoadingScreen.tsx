@@ -43,18 +43,23 @@ export default function LoadingScreen({
   }, []);
 
   useEffect(() => {
-    if (!loading && progress >= 80) {
+    if (!loading) {
+      setProgress(100);
+      setStatusText("Valmis");
+      let hideTimer: ReturnType<typeof setTimeout> | undefined;
       const fadeTimer = setTimeout(() => {
         setFading(true);
-        const hideTimer = setTimeout(() => {
+        hideTimer = setTimeout(() => {
           setVisible(false);
           onFinished?.();
         }, 300);
-        return () => clearTimeout(hideTimer);
-      }, 250);
-      return () => clearTimeout(fadeTimer);
+      }, 100);
+      return () => {
+        clearTimeout(fadeTimer);
+        if (hideTimer !== undefined) clearTimeout(hideTimer);
+      };
     }
-  }, [loading, progress, onFinished]);
+  }, [loading, onFinished]);
 
   if (!visible) return null;
 

@@ -22,7 +22,9 @@ export const addFeature = (
   folderId = "",
   color = "#dc2626",
   imageData: string | null = null,
-) => invokeTauri<number>("add_feature", { title, description, featureType, geojson, folderId, color, imageData });
+) => invokeTauri<number>("add_feature", {
+  feature: { title, description, featureType, geojson, folderId, color, imageData },
+});
 
 export const updateFeature = (
   id: number,
@@ -33,6 +35,9 @@ export const updateFeature = (
   folderId = "",
   color = "#dc2626",
   imageData: string | null = null,
-) => invokeTauri<void>("update_feature", { id, title, description, featureType, geojson, folderId, color, imageData });
+) => invokeTauri<void>("update_feature", {
+  id,
+  feature: { title, description, featureType, geojson, folderId, color, imageData },
+});
 
 export const deleteFeature = (id: number) => invokeTauri<void>("delete_feature", { id });

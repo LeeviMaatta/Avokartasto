@@ -56,9 +56,10 @@ export default function WeatherModal({ open, weather, apiKey, latitude, longitud
         role="dialog"
         aria-modal="true"
         aria-label="Säätiedot"
-        className="max-h-[90vh] w-[calc(100vw-1rem)] max-w-[720px] overflow-y-auto rounded-xl bg-white text-gray-800 shadow-2xl dark:bg-gray-800 dark:text-white"
+        className="flex max-h-[90vh] w-[calc(100vw-1rem)] max-w-[720px] flex-col overflow-hidden rounded-xl bg-white text-gray-800 shadow-2xl dark:bg-gray-800 dark:text-white"
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="overflow-y-auto">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800 sm:px-5">
           <div className="min-w-0">
             <h3 className="truncate text-lg font-bold">Säätiedot{weather ? `: ${weather.cityName}` : ""}</h3>
@@ -117,6 +118,7 @@ export default function WeatherModal({ open, weather, apiKey, latitude, longitud
               Sulje
             </button>
           </div>
+        </div>
         </div>
       </div>
     </div>

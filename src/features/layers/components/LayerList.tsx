@@ -48,8 +48,14 @@ export default function LayerList({
         dragging?.kind === role && dragging.id === layer.id
           ? "bg-blue-100 ring-1 ring-blue-400 dark:bg-blue-900/60"
           : ""
-      } ${missing(layer.needs) ? "opacity-45" : ""}`}
-      title={missing(layer.needs) ? "Lisää API-avain asetuksissa" : layer.note}
+      } ${missing(layer.needs) || (layer.source && !layer.source.url.trim() && !layer.source.base_path.trim()) ? "opacity-45" : ""}`}
+      title={
+        missing(layer.needs)
+          ? "Lisää API-avain asetuksissa"
+          : layer.source && !layer.source.url.trim() && !layer.source.base_path.trim()
+          ? "Lisää URL-osoite tason muokkauksesta"
+          : layer.note
+      }
     >
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         <span

@@ -1,11 +1,16 @@
 import type BaseLayer from "ol/layer/Base";
-import type { MapSource } from "./model/sourceTypes";
+import type { MapSource, SourceLayerOptions } from "./model/sourceTypes";
 import { sourceFactories } from "./factories";
 
-export function buildSourceLayer(source: MapSource, settings: Record<string, string>): BaseLayer | null {
+export function buildSourceLayer(
+  source: MapSource,
+  settings: Record<string, string>,
+  options?: SourceLayerOptions,
+): BaseLayer | null {
+  if (!source.url.trim() && !source.base_path.trim()) return null;
   const factory = sourceFactories[source.api_type];
   if (!factory) return null;
-  const layer = factory(source, settings);
+  const layer = factory(source, settings, options);
   if (!layer) return null;
   layer.setOpacity(source.opacity);
   layer.set("sourceId", source.id);

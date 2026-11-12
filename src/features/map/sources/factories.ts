@@ -13,7 +13,7 @@ import GeoJSON from "ol/format/GeoJSON";
 import GPX from "ol/format/GPX";
 import KML from "ol/format/KML";
 import { tileUrl, remoteTileUrl } from "../../../infrastructure/tauriBridge";
-import type { MapSource, SourceFactory } from "./model/sourceTypes";
+import type { MapSource, SourceFactory, SourceLayerOptions } from "./model/sourceTypes";
 import { resolveSourceUrl } from "./resolveUrl";
 import { buildCopernicusWmsParams, isCopernicusSource } from "./copernicusParams";
 
@@ -34,10 +34,15 @@ const rasterUrl = (source: MapSource, settings: Record<string, string>) => {
   return auth && source.id > 0 ? remoteTileUrl(source.id) : remoteUrl(source, settings);
 };
 
-const cacheSizeOf = (settings: Record<string, string>) =>
-  settings.tileCache === "0" ? 0 : undefined;
+const cacheSizeOf = (settings: Record<string, string>, options?: SourceLayerOptions) =>
+  settings.tileCache === "0" ? 0 : options?.cacheSize;
 
-const xyz: SourceFactory = (source, settings) => {
+const effectiveMaxZoomOf = (source: MapSource, options?: SourceLayerOptions, limit?: number) => {
+  const base = options?.maxZoomCap !== undefined ? Math.min(source.max_zoom, options.maxZoomCap) : source.max_zoom;
+  return limit !== undefined ? Math.min(base, limit) : base;
+};
+
+const xyz: SourceFactory = (source, settings, options) => {
   const isOwm = Boolean(
     (source.builtin_key && source.builtin_key.startsWith("owm-")) ||
     (source.url && source.url.includes("openweathermap.org"))
@@ -48,20 +53,21 @@ const xyz: SourceFactory = (source, settings) => {
     source: new XYZ({
       url: rasterUrl(source, settings),
       attributions: source.attribution || source.name,
-      maxZoom: isOwm ? Math.min(source.max_zoom, 11) : source.max_zoom,
+      maxZoom: effectiveMaxZoomOf(source, options, isOwm ? 11 : undefined),
       minZoom: source.min_zoom,
       tileSize: source.tile_size,
-      cacheSize: cacheSizeOf(settings),
+      cacheSize: cacheSizeOf(settings, options),
       transition: 0,
       crossOrigin: "anonymous",
     }),
   });
 };
 
-const wms: SourceFactory = (source, settings) => {
+const wms: SourceFactory = (source, settings, options) => {
   const params = paramsOf(source);
   const copernicus = isCopernicusSource(source);
   const copernicusParams = copernicus ? buildCopernicusWmsParams(settings) : {};
+  const maxZoom = effectiveMaxZoomOf(source, options);
   const layer = new TileLayer({
     preload: copernicus ? 0 : 1,
     useInterimTilesOnError: true,
@@ -76,9 +82,11 @@ const wms: SourceFactory = (source, settings) => {
         TRANSPARENT: params.transparent ?? true,
         ...copernicusParams,
       },
-      ...(copernicus ? { tileGrid: createXYZ({ tileSize: 512, maxZoom: source.max_zoom }) } : {}),
+      ...(copernicus || options?.maxZoomCap !== undefined
+        ? { tileGrid: createXYZ({ tileSize: copernicus ? 512 : source.tile_size || 256, maxZoom }) }
+        : {}),
       attributions: source.attribution || source.name,
-      cacheSize: cacheSizeOf(settings),
+      cacheSize: cacheSizeOf(settings, options),
       transition: 0,
       crossOrigin: "anonymous",
     }),
@@ -87,30 +95,31 @@ const wms: SourceFactory = (source, settings) => {
   return layer;
 };
 
-const wmts: SourceFactory = (source, settings) => xyz(source, settings);
+const wmts: SourceFactory = (source, settings, options) => xyz(source, settings, options);
 
-const localTile: SourceFactory = (source, settings) => new TileLayer({
+const localTile: SourceFactory = (source, settings, options) => new TileLayer({
   preload: 1,
   useInterimTilesOnError: true,
   source: new XYZ({
     url: tileUrl(source.id),
     attributions: source.attribution || source.name,
-    maxZoom: source.max_zoom,
+    maxZoom: effectiveMaxZoomOf(source, options),
     minZoom: source.min_zoom,
     tileSize: source.tile_size,
-    cacheSize: cacheSizeOf(settings),
+    cacheSize: cacheSizeOf(settings, options),
     transition: 0,
     crossOrigin: "anonymous",
   }),
 });
 
-const vectorTile: SourceFactory = (source, settings) => new VectorTileLayer({
+const vectorTile: SourceFactory = (source, settings, options) => new VectorTileLayer({
   updateWhileAnimating: false,
   updateWhileInteracting: false,
   source: new VectorTileSource({
     format: new MVT(),
     url: remoteUrl(source, settings),
-    cacheSize: cacheSizeOf(settings),
+    maxZoom: effectiveMaxZoomOf(source, options),
+    cacheSize: cacheSizeOf(settings, options),
   }),
 });
 

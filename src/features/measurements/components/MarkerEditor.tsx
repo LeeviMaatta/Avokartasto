@@ -1,4 +1,5 @@
 import { MapPin, Save, Trash2, X } from "lucide-react";
+import { useMapStore } from "../../../store/mapStore";
 
 export type MarkerFolder = { id: string; name: string; visible?: boolean };
 export type MarkerDraft = {
@@ -33,13 +34,18 @@ export default function MarkerEditor({
   onCancel,
   onDelete,
 }: MarkerEditorProps) {
+  const iconColor = useMapStore((s) =>
+    draft.id !== undefined
+      ? s.settings.savedMarkerColor || "#dc2626"
+      : s.settings.unsavedMarkerColor || "#f97316",
+  );
   return (
     <div 
       className="absolute left-2 right-2 top-16 z-20 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 py-2.5 text-xs text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 sm:left-1/2 sm:right-auto sm:top-20 sm:max-w-[min(96vw,56rem)] sm:-translate-x-1/2 sm:gap-2.5 sm:px-4" 
       style={{ opacity }}
     >
       <span className="flex items-center gap-1.5 whitespace-nowrap font-semibold text-slate-900 dark:text-white sm:text-sm">
-        <MapPin size={16} className="text-red-500" />
+        <MapPin size={16} style={{ color: iconColor }} />
         <span>Merkki</span>
       </span>
 
@@ -75,7 +81,7 @@ export default function MarkerEditor({
           disabled={busy} 
           onClick={onSave}
         >
-          <Save size={13} /> <span>{draft.id !== undefined ? "Tallenna" : "Tallenna"}</span>
+          <Save size={13} /> <span>Tallenna</span>
         </button>
 
         {onDelete && (

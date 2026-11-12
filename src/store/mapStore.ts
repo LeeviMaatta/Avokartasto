@@ -21,6 +21,7 @@ interface State {
   tool: Tool;
   measure: Measure | null;
   editingFeatureId: number | null;
+  activeUnsavedMeasurementId: string | null;
   profile: ProfilePoint[] | null;
   profileVisible: boolean;
   profileError: string | null;
@@ -72,6 +73,7 @@ export const useMapStore = create<State>((set, get) => ({
   tool: "none",
   measure: null,
   editingFeatureId: null,
+  activeUnsavedMeasurementId: null,
   profile: null,
   profileVisible: false,
   profileError: null,
@@ -112,8 +114,9 @@ export const useMapStore = create<State>((set, get) => ({
     };
     const normalized = (ids: string[]) => ids.map(normalizeId).filter((id): id is string => Boolean(id));
     const normalizedBasemap = normalizeId(merged.basemap ?? "osm") ?? byBuiltin.get("osm") ?? "";
+    const normalizedBackdrop = merged.backdropLayerId ? (normalizeId(merged.backdropLayerId) ?? "") : "";
     set({
-      settings: { ...merged, basemap: normalizedBasemap },
+      settings: { ...merged, basemap: normalizedBasemap, backdropLayerId: normalizedBackdrop },
       sources,
       basemap: normalizedBasemap,
       overlays: normalized(overlays),

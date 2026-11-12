@@ -274,7 +274,7 @@ export default function InfoBox() {
             ) : "Sää: lisää OpenWeatherMap-avain asetuksista"}
           </div>
         )}
-        {dataError && <div className="mt-1 max-w-xs text-[10px] text-amber-300">{dataError}</div>}
+        {dataError && <div className="mt-1 max-w-xs text-[10px] text-amber-700 dark:text-amber-300">{dataError}</div>}
       </div>
 
       <WeatherModal

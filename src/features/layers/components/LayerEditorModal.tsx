@@ -46,7 +46,8 @@ export default function LayerEditorModal({
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="max-h-[calc(100vh-2rem)] w-[calc(100vw-1rem)] max-w-lg overflow-x-hidden overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-800 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-white sm:p-5">
+      <div className="flex max-h-[calc(100vh-2rem)] w-[calc(100vw-1rem)] max-w-lg flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-sm text-slate-800 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-white">
+        <div className="overflow-x-hidden overflow-y-auto p-4 sm:p-5">
         <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3 dark:border-zinc-800">
           <div>
             <div className="flex items-center gap-2">
@@ -96,9 +97,11 @@ export default function LayerEditorModal({
           )}
           {editDraft && <>
             <label>Karttatason nimi<input className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.name} onChange={(e) => onEditDraftChange({ ...editDraft, name: e.target.value })} /></label>
-            <label>Osoite, kansio tai MBTiles-tiedosto<input className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.url || editDraft.base_path} onChange={(e) => onEditDraftChange({ ...editDraft, url: e.target.value, base_path: e.target.value })} /></label>
-            <label>Laatan polku<input className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.pattern} onChange={(e) => onEditDraftChange({ ...editDraft, pattern: e.target.value })} /></label>
-            <label>Rajapinnan tyyppi<select className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.api_type} onChange={(e) => onEditDraftChange({ ...editDraft, api_type: e.target.value as LocalSource["api_type"] })}><option value="local_tile">Local tile</option><option value="xyz">Tile Map API</option><option value="wmts">WMTS API</option><option value="wms">WMS API</option><option value="vector_tile">Vector tile</option><option value="geojson">GeoJSON</option><option value="gpx">GPX</option><option value="kml">KML</option><option value="wfs">WFS</option><option value="shapefile">Shapefile</option><option value="img">IMG / raster image</option></select></label>
+            <label>{editDraft.api_type === "local_tile" ? "Kansio tai MBTiles-tiedosto" : "Osoite (URL)"}<input className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.api_type === "local_tile" ? editDraft.base_path : editDraft.url} placeholder={editDraft.api_type === "local_tile" ? "esim. C:\\kartat\\tiilet" : "https://.../{z}/{x}/{y}.png"} onChange={(e) => onEditDraftChange(editDraft.api_type === "local_tile" ? { ...editDraft, base_path: e.target.value } : { ...editDraft, url: e.target.value })} /></label>
+            {editDraft.api_type === "local_tile" && (
+              <label>Laatan polku<input className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.pattern} onChange={(e) => onEditDraftChange({ ...editDraft, pattern: e.target.value })} /></label>
+            )}
+            <label>Rajapinnan tyyppi<select className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.api_type} onChange={(e) => onEditDraftChange({ ...editDraft, api_type: e.target.value as LocalSource["api_type"] })}><option value="local_tile">Local tile</option><option value="xyz">Tile Map API</option><option value="wmts">WMTS API</option><option value="wms">WMS API</option><option value="vector_tile">Vector tile</option><option value="geojson">GeoJSON</option><option value="gpx">GPX</option><option value="kml">KML</option><option value="wfs">WFS</option><option value="img">IMG / raster image</option></select></label>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label>Laatan koko<input type="number" min="64" max="2048" className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.tile_size} onChange={(e) => onEditDraftChange({ ...editDraft, tile_size: Number(e.target.value) })} /></label>
               <label>Layer / taso<input className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.layer_name} onChange={(e) => onEditDraftChange({ ...editDraft, layer_name: e.target.value })} /></label>
@@ -128,6 +131,7 @@ export default function LayerEditorModal({
               ["lantmaterietUsername", "Lantmäteriet käyttäjätunnus"],
               ["lantmaterietPassword", "Lantmäteriet salasana"],
               ["owmKey", "OpenWeatherMap API-avain"],
+              ["copernicusInstanceId", "Copernicus Instance ID"],
             ].map(([key, label]) => (
               <label key={key} className="mb-2 block text-xs">{label}
                 <input type={key.toLowerCase().includes("password") || key.toLowerCase().includes("key") ? "password" : "text"} className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={apiDraft[key] ?? ""} onChange={(e) => onApiDraftChange({ ...apiDraft, [key]: e.target.value })} />
@@ -138,6 +142,7 @@ export default function LayerEditorModal({
         <div className="mt-5 flex justify-end gap-2">
           <button className="rounded border border-slate-300 px-4 py-2 dark:border-zinc-700" onClick={onClose}>Peruuta</button>
           <button className="rounded bg-[#1671a8] px-4 py-2 font-medium text-white hover:bg-[#125d8c]" onClick={editDraft ? onSaveSource : onSaveLayer}>Tallenna</button>
+        </div>
         </div>
       </div>
     </div>

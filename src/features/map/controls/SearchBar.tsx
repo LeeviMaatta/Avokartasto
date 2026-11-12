@@ -1,10 +1,10 @@
 import { Search, X, Loader2, MapPin } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useMapStore } from "../../../store/mapStore";
-import { fetchWithDebug } from "../../debug/debugFetch";
+import { searchNominatim, type NominatimSearchHit } from "../sources/nominatimService";
 import { searchSavedMarkers, type MarkerSearchHit } from "../../markers/domain/markerSearch";
 
-type SearchResult = { display_name: string; lat: string; lon: string };
+type SearchResult = NominatimSearchHit;
 const SEARCH_TIMEOUT_MS = 10_000;
 
 export default function SearchBar() {
@@ -17,6 +17,7 @@ export default function SearchBar() {
   const searchController = useRef<AbortController | null>(null);
   const rawOverlayOpacity = Number(useMapStore((s) => s.settings.uiOverlayOpacity ?? "1"));
   const overlayOpacity = Number.isFinite(rawOverlayOpacity) ? Math.min(1, Math.max(0, rawOverlayOpacity)) : 1;
+  const savedMarkerColor = useMapStore((s) => s.settings.savedMarkerColor ?? "#dc2626");
 
   const search = async (targetQuery?: string) => {
     const text = (targetQuery !== undefined ? targetQuery : query).trim();
@@ -43,19 +44,11 @@ export default function SearchBar() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetchWithDebug(
-        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&accept-language=fi&q=${encodeURIComponent(text)}`,
-        { signal: controller.signal },
-        "place search",
-      );
-      if (!response.ok) throw new Error("Paikkahaku epäonnistui.");
-      const data: unknown = await response.json();
-      if (!Array.isArray(data)) throw new Error("Paikkahaun vastaus oli virheellinen.");
-      const valid = data.filter((item): item is SearchResult =>
-        typeof item === "object" && item !== null &&
-        typeof item.display_name === "string" &&
-        typeof item.lat === "string" && typeof item.lon === "string"
-      );
+      const valid = await searchNominatim(text, {
+        limit: 5,
+        signal: controller.signal,
+        label: "place search",
+      });
       setResults(valid);
       if (valid.length === 0 && foundMarkers.length === 0) setError("Paikkaa ei löytynyt.");
     } catch (reason) {
@@ -196,8 +189,9 @@ export default function SearchBar() {
       </form>
 
       {(markerResults.length > 0 || results.length > 0 || error) && (
-        <div className="mt-1.5 max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white/98 text-xs text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/98 dark:text-zinc-100">
-          {markerResults.map((hit) => (
+        <div className="mt-1.5 overflow-hidden rounded-xl border border-slate-200 bg-white/98 text-xs text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/98 dark:text-zinc-100">
+          <div className="max-h-60 overflow-y-auto">
+            {markerResults.map((hit) => (
             <button
               key={`marker:${hit.id}`}
               type="button"
@@ -205,7 +199,7 @@ export default function SearchBar() {
               onClick={() => selectMarker(hit)}
             >
               <div className="flex min-w-0 items-center gap-2">
-                <MapPin size={14} className="shrink-0" style={{ color: hit.color }} />
+                <MapPin size={14} className="shrink-0" style={{ color: savedMarkerColor }} />
                 <div className="min-w-0">
                   <div className="truncate font-medium">{hit.title}</div>
                   {hit.description && (
@@ -229,6 +223,7 @@ export default function SearchBar() {
             </button>
           ))}
           {error && <div className="px-3.5 py-2.5 text-amber-700 dark:text-amber-400 font-medium">{error}</div>}
+          </div>
         </div>
       )}
     </div>

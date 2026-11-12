@@ -153,12 +153,13 @@ export default function DebugOverlay() {
   return (
     <aside
       ref={containerRef}
-      className={`pointer-events-auto fixed ${positionClass} z-40 max-h-[calc(100vh-2rem)] max-w-[min(28rem,calc(100vw-1.5rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white/95 p-3 font-mono text-slate-800 shadow-2xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 ${
+      className={`pointer-events-auto fixed ${positionClass} z-40 flex max-h-[calc(100vh-2rem)] max-w-[min(28rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white/95 font-mono text-slate-800 shadow-2xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 ${
         settings.fontSize === "medium" ? "text-xs" : "text-[11px]"
       }`}
       style={overlayStyle}
       aria-label="Debug overlay"
     >
+      <div className="overflow-y-auto p-3">
       <div
         onPointerDown={startDrag}
         className="mb-2 flex cursor-grab select-none items-center justify-between border-b border-slate-200 pb-1.5 active:cursor-grabbing dark:border-zinc-800"
@@ -219,6 +220,7 @@ export default function DebugOverlay() {
           ))}
         </div>
       )}
+      </div>
     </aside>
   );
 }

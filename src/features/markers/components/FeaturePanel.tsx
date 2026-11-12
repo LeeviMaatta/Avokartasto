@@ -51,11 +51,21 @@ export default function FeaturePanel({
   const ungroupedFeatures = features.filter((feature) => !feature.folder_id || !folders.some((folder) => folder.id === feature.folder_id));
 
   return (
-    <div className="rounded-lg bg-white/95 text-sm shadow-lg backdrop-blur dark:bg-zinc-950/95 dark:text-white">
-      <button className="flex w-full items-center gap-2 px-3 py-2 font-semibold" onClick={onToggleOpen}>
-        <Bookmark size={16} /> <span className="flex-1 text-left">Merkit ({features.length})</span>
-        <span onClick={(event) => { event.stopPropagation(); onToggleFolderMenu(); }} className="rounded p-1 text-slate-600 hover:bg-slate-100 dark:text-gray-200 dark:hover:bg-gray-700" title="Lisää kansio"><FolderPlus size={15} /></span>
-      </button>
+    <div className="overflow-hidden rounded-lg bg-white/95 text-sm shadow-lg backdrop-blur dark:bg-zinc-950/95 dark:text-white">
+      <div className="flex w-full items-center gap-1 pr-2">
+        <button className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left font-semibold" onClick={onToggleOpen}>
+          <Bookmark size={16} /> <span className="truncate">Merkit ({features.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={onToggleFolderMenu}
+          className="rounded p-1 text-slate-600 hover:bg-slate-100 dark:text-gray-200 dark:hover:bg-gray-700"
+          title="Lisää kansio"
+          aria-label="Lisää kansio"
+        >
+          <FolderPlus size={15} />
+        </button>
+      </div>
       {open && (
         <div className="max-h-[30vh] space-y-1 overflow-y-auto border-t px-3 py-2 dark:border-gray-700">
           {folderMenuOpen && (

@@ -1,4 +1,5 @@
 import type { MapSource } from "./model/sourceTypes";
+import { fetchWithDebug } from "../../debug/debugFetch";
 
 export type CopernicusDateMode = "latest" | "single" | "range";
 export type CopernicusPriority = "leastCC" | "mostRecent";
@@ -90,7 +91,7 @@ export async function fetchCopernicusAvailableDates(
     `&TIME=${startIso}/${endIso}` +
     `&MAXCC=${clampedCloud}&MAXFEATURES=100`;
 
-  const res = await fetch(url);
+  const res = await fetchWithDebug(url, undefined, "copernicus wfs");
   if (!res.ok) throw new Error(`Copernicus-luettelohaku: ${res.status}`);
   const data = (await res.json()) as {
     features?: Array<{ properties?: { date?: string; cloudCoverPercentage?: number } }>;
@@ -142,7 +143,7 @@ export async function fetchCopernicusLayers(instanceId: string): Promise<Coperni
   if (cached) return cached;
 
   const url = `https://sh.dataspace.copernicus.eu/ogc/wms/${encodeURIComponent(id)}?SERVICE=WMS&REQUEST=GetCapabilities`;
-  const res = await fetch(url);
+  const res = await fetchWithDebug(url, undefined, "copernicus wms");
   if (!res.ok) throw new Error(`Copernicus GetCapabilities: ${res.status}`);
   const xmlText = await res.text();
   const doc = new DOMParser().parseFromString(xmlText, "text/xml");
