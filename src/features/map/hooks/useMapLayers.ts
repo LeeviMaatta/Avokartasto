@@ -1,6 +1,8 @@
 import { useEffect, useState, type MutableRefObject, type RefObject } from "react";
 import OlMap from "ol/Map";
+import BaseLayer from "ol/layer/Base";
 import TileLayer from "ol/layer/Tile";
+import VectorTileLayer from "ol/layer/VectorTile";
 import { buildLayer } from "../layers";
 import type { LocalSource } from "../../../infrastructure/tauriBridge";
 import { recordDebugEvent, recordTileEvent } from "../../debug/debugMonitor";
@@ -9,7 +11,7 @@ const APP_LAYER_TYPE = "karttasovellus-layer-type";
 
 interface MapLayersOptions {
   mapRef: RefObject<OlMap | null>;
-  overlayRefs: MutableRefObject<TileLayer<any>[]>;
+  overlayRefs: MutableRefObject<BaseLayer[]>;
   basemap: string;
   overlays: string[];
   overlayOrder: string[];
@@ -26,14 +28,14 @@ export function useMapLayers({ mapRef, overlayRefs, basemap, overlays, overlayOr
     setBaseLayerError(null);
     const layer = buildLayer(basemap, settings, sources, false);
     const previousLayers = map.getLayers().getArray().filter(
-      (item) => item instanceof TileLayer && item.get(APP_LAYER_TYPE) === "basemap",
-    ) as TileLayer<any>[];
+      (item) => item.get(APP_LAYER_TYPE) === "basemap",
+    );
     if (!layer) {
       setBaseLayerError("Karttatason asetukset puuttuvat tai tasoa ei voitu luoda.");
       return;
     }
     layer.set(APP_LAYER_TYPE, "basemap");
-    const source = layer.getSource();
+    const source = layer instanceof TileLayer || layer instanceof VectorTileLayer ? layer.getSource() : null;
     if (!source) return;
     let settled = false;
     let loadedTiles = 0;
@@ -79,13 +81,13 @@ export function useMapLayers({ mapRef, overlayRefs, basemap, overlays, overlayOr
       source.un("tileloaderror", onError);
       map.removeLayer(layer);
     };
-  }, [mapRef, basemap, settings.mmlKey, settings.lantmaterietUsername, settings.lantmaterietPassword, settings.layerCopies, settings.layerViewSettings, sources]);
+  }, [mapRef, basemap, settings.layerViewSettings, sources]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     map.getLayers().getArray()
-      .filter((layer) => layer instanceof TileLayer && layer.get(APP_LAYER_TYPE) === "overlay")
+      .filter((layer) => layer.get(APP_LAYER_TYPE) === "overlay")
       .forEach((layer) => map.removeLayer(layer));
     overlayRefs.current = [];
     [...overlays].sort((a, b) => {
@@ -100,7 +102,7 @@ export function useMapLayers({ mapRef, overlayRefs, basemap, overlays, overlayOr
       map.addLayer(layer);
       overlayRefs.current.push(layer);
     });
-  }, [mapRef, overlayRefs, overlays, overlayOrder, settings.mmlKey, settings.owmKey, settings.layerCopies, settings.layerViewSettings, sources]);
+  }, [mapRef, overlayRefs, overlays, overlayOrder, settings.layerViewSettings, settings, sources]);
 
   return { baseLayerError };
 }

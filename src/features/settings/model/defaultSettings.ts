@@ -19,7 +19,6 @@ export const DEFAULT_SETTINGS: Settings = {
   overlays: "[]",
   overlayOrder: "[]",
   basemapOrder: "[]",
-  layerCopies: "[]",
   layerViewSettings: "{}",
   markerFolders: "[]",
   hiddenFeatures: "[]",

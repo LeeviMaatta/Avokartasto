@@ -88,7 +88,7 @@ export default function InfoBox() {
       <WeatherModal
         open={weatherModalOpen}
         weather={weather}
-        hasApiKey={Boolean(st.owmKey)}
+        apiKey={st.owmKey ?? ""}
         latitude={lat}
         longitude={lon}
         onClose={() => useMapStore.setState({ weatherModalOpen: false })}

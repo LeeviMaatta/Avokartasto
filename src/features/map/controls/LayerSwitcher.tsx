@@ -1,8 +1,7 @@
 import { Layers, MoreHorizontal } from "lucide-react";
 import { useState, useEffect, type MouseEvent, type PointerEvent } from "react";
-import { useMapStore, type LayerCopy } from "../../../store/mapStore";
-import { BASEMAPS, OVERLAYS } from "../layers";
-import { addSource, deleteFeature, deleteSource, listFeatures, updateSource, type LocalSource, type UserFeature } from "../../../infrastructure/tauriBridge";
+import { useMapStore } from "../../../store/mapStore";
+import { addSourceConfig, deleteFeature, deleteSource, listFeatures, resetSourceToDefault, updateSourceConfig, type LocalSource, type UserFeature } from "../../../infrastructure/tauriBridge";
 import { requestConfirmation } from "../../../app/confirmation";
 import FeaturePanel from "../../markers/components/FeaturePanel";
 import type { MarkerFolder } from "../../markers/model/markerTypes";
@@ -12,15 +11,16 @@ import AddLayerModal, { type NewLayerSource } from "../../layers/components/AddL
 import LayerEditorModal from "../../layers/components/LayerEditorModal";
 import type { LayerViewDraft } from "../../layers/model/layerViewTypes";
 import FolderEditor from "../../markers/components/FolderEditor";
+import { requiredSecrets } from "../sources/resolveUrl";
 
 export default function LayerSwitcher() {
   const [openLayers, setOpenLayers] = useState(true);
   const [openFeatures, setOpenFeatures] = useState(true);
-  const { basemap, overlays, overlayOrder, basemapOrder, hiddenLayers, sources, layerCopies, settings, setBasemap, toggleOverlay, hideLayer, restoreLayer, setLayerOrder, duplicateLayer, deleteLayerCopy, reloadSources: refreshSources, featuresVersion, bumpFeatures } = useMapStore();
+  const { basemap, overlays, overlayOrder, basemapOrder, hiddenLayers, sources, settings, setBasemap, toggleOverlay, hideLayer, restoreLayer, setLayerOrder, reloadSources: refreshSources, featuresVersion, bumpFeatures } = useMapStore();
   const rawOverlayOpacity = Number(settings.uiOverlayOpacity ?? "1");
   const overlayOpacity = Number.isFinite(rawOverlayOpacity) ? Math.min(1, Math.max(0, rawOverlayOpacity)) : 1;
   const [features, setFeatures] = useState<UserFeature[]>([]);
-  const [menu, setMenu] = useState<{ x: number; y: number; id: string; name: string; source?: LocalSource; copy?: LayerCopy; overlay: boolean } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; id: string; name: string; source?: LocalSource; overlay: boolean } | null>(null);
   const [editDraft, setEditDraft] = useState<LocalSource | null>(null);
   const [editLayer, setEditLayer] = useState<{ id: string; name: string; overlay: boolean } | null>(null);
   const [selectedBasemap, setSelectedBasemap] = useState(basemap);
@@ -31,7 +31,7 @@ export default function LayerSwitcher() {
   const [actionMenu, setActionMenu] = useState<{ type: "layers"; x: number; y: number } | null>(null);
   const [newSource, setNewSource] = useState<NewLayerSource>({
     name: "", base_path: "", pattern: "{z}/{x}/{y}.png", role: "overlay" as LocalSource["role"],
-    api_type: "tile" as LocalSource["api_type"], tile_size: 256, max_zoom: 19, layer_name: "", style: "", attribution: "",
+    api_type: "local_tile" as LocalSource["api_type"], tile_size: 256, max_zoom: 19, layer_name: "", style: "", attribution: "",
   });
   const [dragging, setDragging] = useState<{ kind: "overlay" | "basemap"; id: string } | null>(null);
   const [folders, setFolders] = useState<MarkerFolder[]>([]);
@@ -117,18 +117,14 @@ export default function LayerSwitcher() {
   };
 
   const allBasemaps = [
-    ...BASEMAPS,
-    ...layerCopies.filter((copy) => copy.role === "basemap").map((copy) => ({ id: `copy:${copy.id}`, name: `↳ ${copy.name}`, needs: undefined, note: "Käyttäjän kopio", copy })),
-    ...sources.filter((s) => s.role === "basemap").map((s) => ({ id: `local:${s.id}`, name: `📁 ${s.name}`, needs: undefined, note: "Käyttäjän pohjakartta", source: s }))
+    ...sources.filter((s) => s.role === "basemap").map((s) => ({ id: `src:${s.id}`, name: s.name, needs: requiredSecrets(s)[0], note: s.note, source: s }))
   ].sort((a, b) => {
     const ai = basemapOrder.indexOf(a.id);
     const bi = basemapOrder.indexOf(b.id);
     return (ai < 0 ? Number.MAX_SAFE_INTEGER : ai) - (bi < 0 ? Number.MAX_SAFE_INTEGER : bi);
   });
   const allOverlays = [
-    ...OVERLAYS,
-    ...layerCopies.filter((copy) => copy.role === "overlay").map((copy) => ({ id: `copy:${copy.id}`, name: `↳ ${copy.name}`, needs: undefined, note: "Käyttäjän kopio", copy })),
-    ...sources.filter((s) => s.role === "overlay").map((s) => ({ id: `local:${s.id}`, name: `📁 ${s.name}`, needs: undefined, note: "Käyttäjän päällys", source: s })),
+    ...sources.filter((s) => s.role === "overlay").map((s) => ({ id: `src:${s.id}`, name: s.name, needs: requiredSecrets(s)[0], note: s.note, source: s })),
   ].sort((a, b) => {
     const ai = overlayOrder.indexOf(a.id);
     const bi = overlayOrder.indexOf(b.id);
@@ -175,26 +171,34 @@ export default function LayerSwitcher() {
 
   const addNewSource = async () => {
     if (!newSource.base_path.trim()) return;
-    await addSource(
-      newSource.name.trim() || "Uusi karttataso",
-      newSource.base_path.trim(),
-      newSource.pattern.trim() || "{z}/{x}/{y}.png",
-      newSource.role,
-      1,
-      Math.max(0, Math.min(24, Math.round(newSource.max_zoom))),
-      newSource.attribution.trim(),
-      newSource.api_type,
-      Math.max(64, Math.min(2048, Math.round(newSource.tile_size))),
-      newSource.layer_name.trim(),
-      newSource.style.trim(),
-    );
+    await addSourceConfig({
+      name: newSource.name.trim() || "Uusi karttataso",
+      base_path: newSource.base_path.trim(),
+      pattern: newSource.pattern.trim() || "{z}/{x}/{y}.png",
+      projection: "EPSG:3857",
+      role: newSource.role,
+      opacity: 1,
+      min_zoom: 0,
+      max_zoom: Math.max(0, Math.min(24, Math.round(newSource.max_zoom))),
+      attribution: newSource.attribution.trim(),
+      api_type: newSource.api_type,
+      tile_size: Math.max(64, Math.min(2048, Math.round(newSource.tile_size))),
+      layer_name: newSource.layer_name.trim(),
+      style: newSource.style.trim(),
+      url: newSource.base_path.trim(),
+      params: "{}",
+      auth: "",
+      note: "",
+      view_zoom_offset: 0,
+      view_magnification: 1,
+    });
     await refreshSources();
     setAddOpen(false);
   };
 
-  const openMenu = (event: MouseEvent, id: string, name: string, overlay: boolean, source?: LocalSource, copy?: LayerCopy) => {
+  const openMenu = (event: MouseEvent, id: string, name: string, overlay: boolean, source?: LocalSource) => {
     event.preventDefault();
-    setMenu({ x: event.clientX, y: event.clientY, id, name, overlay, source, copy });
+    setMenu({ x: event.clientX, y: event.clientY, id, name, overlay, source });
   };
 
   const editSource = async () => {
@@ -245,23 +249,32 @@ export default function LayerSwitcher() {
 
   const saveSource = async () => {
     if (!editDraft) return;
-    await updateSource(
-      editDraft.id,
-      editDraft.name.trim() || "Karttataso",
-      editDraft.base_path.trim(),
-      editDraft.pattern.trim() || "{z}/{x}/{y}.png",
-      editDraft.role,
-      Math.min(1, Math.max(0, editDraft.opacity)),
-      Math.min(24, Math.max(0, Math.round(editDraft.max_zoom))),
-      editDraft.attribution.trim(),
-      editDraft.api_type,
-      Math.max(64, Math.min(2048, Math.round(editDraft.tile_size))),
-      editDraft.layer_name.trim(),
-      editDraft.style.trim(),
-    );
+    await updateSourceConfig(editDraft.id, {
+      name: editDraft.name.trim() || "Karttaso",
+      base_path: editDraft.base_path.trim(),
+      pattern: editDraft.pattern.trim() || "{z}/{x}/{y}.png",
+      projection: editDraft.projection,
+      role: editDraft.role,
+      opacity: Math.min(1, Math.max(0, editDraft.opacity)),
+      min_zoom: editDraft.min_zoom,
+      max_zoom: Math.min(24, Math.max(0, Math.round(editDraft.max_zoom))),
+      attribution: editDraft.attribution.trim(),
+      api_type: editDraft.api_type,
+      tile_size: Math.max(64, Math.min(2048, Math.round(editDraft.tile_size))),
+      layer_name: editDraft.layer_name.trim(),
+      style: editDraft.style.trim(),
+      url: editDraft.url || editDraft.base_path,
+      params: editDraft.params,
+      auth: editDraft.auth,
+      note: editDraft.note,
+      view_zoom_offset: editDraft.view_zoom_offset,
+      view_magnification: editDraft.view_magnification,
+    });
     await refreshSources();
-    await saveViewSettings(`local:${editDraft.id}`);
-    if (basemap === `local:${editDraft.id}` && editDraft.role === "overlay") setBasemap("osm");
+    if (basemap === `src:${editDraft.id}` && editDraft.role === "overlay") {
+      const fallback = sources.find((source) => source.builtin_key === "osm");
+      if (fallback) setBasemap(`src:${fallback.id}`);
+    }
     setEditDraft(null);
   };
 
@@ -275,36 +288,26 @@ export default function LayerSwitcher() {
   const duplicate = async () => {
     if (!menu) return;
     if (menu.source) {
-      await addSource(
-        `${menu.source.name} (kopio)`,
-        menu.source.base_path,
-        menu.source.pattern,
-        menu.source.role,
-        menu.source.opacity,
-        menu.source.max_zoom,
-        menu.source.attribution,
-        menu.source.api_type,
-        menu.source.tile_size,
-        menu.source.layer_name,
-        menu.source.style,
-      );
+      await addSourceConfig({
+        ...menu.source,
+        name: `${menu.source.name} (kopio)`,
+        view_zoom_offset: menu.source.view_zoom_offset,
+        view_magnification: menu.source.view_magnification,
+      });
       await refreshSources();
-    } else if (menu.copy) {
-      duplicateLayer(menu.copy.sourceId, menu.copy.name, menu.copy.role);
-    } else {
-      duplicateLayer(menu.id, menu.name, menu.overlay ? "overlay" : "basemap");
     }
     setMenu(null);
   };
 
   const remove = async () => {
     if (!menu) return;
-    if (menu.copy) {
-      if (await requestConfirmation(`Poistetaanko karttatason kopio "${menu.copy.name}"?`)) deleteLayerCopy(menu.copy.id);
-    } else if (menu.source && await requestConfirmation(`Poistetaanko karttataso "${menu.source.name}"?`)) {
+    if (menu.source && !menu.source.is_default && await requestConfirmation(`Poistetaanko karttataso "${menu.source.name}"?`)) {
       await deleteSource(menu.source.id);
       await refreshSources();
-      if (basemap === menu.id) setBasemap("osm");
+      if (basemap === menu.id) {
+        const fallback = sources.find((source) => source.builtin_key === "osm");
+        if (fallback) setBasemap(`src:${fallback.id}`);
+      }
     }
     setMenu(null);
   };
@@ -414,12 +417,21 @@ export default function LayerSwitcher() {
           <button className="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-700" onClick={() => void editSource()}>
             Muokkaa
           </button>
-          {(menu.source || menu.copy) && (
+          {menu.source && !menu.source.is_default && (
             <>
               <button className="block w-full px-3 py-1.5 text-left text-red-600 hover:bg-gray-100 dark:hover:bg-gray-700" onClick={() => void remove()}>
                 Poista
               </button>
             </>
+          )}
+          {menu.source?.is_default && (
+            <button className="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-700" onClick={async () => {
+              await resetSourceToDefault(menu.source!.id);
+              await refreshSources();
+              setMenu(null);
+            }}>
+              Palauta oletus
+            </button>
           )}
           <button className="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-700" onClick={() => void duplicate()}>
             Monista

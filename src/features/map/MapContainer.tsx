@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import OlMap from "ol/Map";
 import View from "ol/View";
-import TileLayer from "ol/layer/Tile";
+import BaseLayer from "ol/layer/Base";
 import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
 import GeoJSON from "ol/format/GeoJSON";
@@ -26,7 +26,7 @@ import { recordDebugEvent, setDebugMap } from "../debug/debugMonitor";
 export default function MapContainer() {
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<OlMap | null>(null);
-  const overlayRefs = useRef<TileLayer<any>[]>([]);
+  const overlayRefs = useRef<BaseLayer[]>([]);
   const measureSrc = useRef(new VectorSource());
   const featSrc = useRef(new VectorSource());
   const pendingMarkerFeature = useRef<Feature | null>(null);
@@ -303,9 +303,9 @@ export default function MapContainer() {
           </div>
         </div>
       )}
-      {baseLayerError && basemap === "lantmateriet-topo" && (
+      {baseLayerError && (
         <div className="absolute left-3 right-3 top-3 z-30 rounded bg-red-700 px-3 py-2 text-xs text-white shadow-lg" style={{ opacity: overlayOpacity }}>
-          Lantmäteriet Topo: {baseLayerError}
+          Karttatason lataus: {baseLayerError}
         </div>
       )}
 

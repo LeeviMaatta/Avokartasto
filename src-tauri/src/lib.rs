@@ -1,6 +1,6 @@
 use keyring::{Entry, Error as KeyringError};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::{Component, Path},
@@ -32,6 +32,17 @@ CREATE TABLE IF NOT EXISTS local_sources (
     ,tile_size INTEGER NOT NULL DEFAULT 256
     ,layer_name TEXT NOT NULL DEFAULT ''
     ,style TEXT NOT NULL DEFAULT ''
+    ,builtin_key TEXT UNIQUE
+    ,is_default INTEGER NOT NULL DEFAULT 0
+    ,factory_json TEXT
+    ,kind TEXT NOT NULL DEFAULT 'raster'
+    ,url TEXT NOT NULL DEFAULT ''
+    ,min_zoom INTEGER NOT NULL DEFAULT 0
+    ,params TEXT NOT NULL DEFAULT '{}'
+    ,auth TEXT NOT NULL DEFAULT ''
+    ,note TEXT NOT NULL DEFAULT ''
+    ,view_zoom_offset INTEGER NOT NULL DEFAULT 0
+    ,view_magnification INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS user_features (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,14 +117,18 @@ fn validate_source(
     api_type: &str,
     tile_size: i64,
 ) -> Res<()> {
-    if name.trim().is_empty() || base_path.trim().is_empty() || pattern.trim().is_empty() {
-        return Err("Karttatason nimi, polku ja laattamalli ovat pakollisia".into());
+    if name.trim().is_empty() {
+        return Err("Karttatason nimi on pakollinen".into());
     }
     if !matches!(role, "basemap" | "overlay") {
         return Err("Virheellinen karttatason rooli".into());
     }
-    if !matches!(api_type, "tile" | "wms") {
-        return Err("Tuettuja rajapintatyyppejä ovat tile ja wms".into());
+    if !matches!(
+        api_type,
+        "tile" | "local_tile" | "xyz" | "wmts" | "wms" | "vector_tile" | "wfs"
+            | "geojson" | "gpx" | "kml" | "shapefile" | "img"
+    ) {
+        return Err("Karttatason rajapintatyyppiä ei tueta".into());
     }
     if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) {
         return Err("Virheellinen karttatason läpinäkyvyys".into());
@@ -121,13 +136,18 @@ fn validate_source(
     if !(0..=24).contains(&max_zoom) || !(64..=2048).contains(&tile_size) {
         return Err("Karttatason zoom- tai laattakoko on virheellinen".into());
     }
-    let pattern_path = Path::new(pattern);
-    if pattern_path.is_absolute()
-        || pattern_path
-            .components()
-            .any(|component| component == Component::ParentDir)
-    {
-        return Err("Laatan polun on oltava suhteellinen eikä se saa sisältää '..' -osia".into());
+    if matches!(api_type, "tile" | "local_tile" | "shapefile" | "img") {
+        if base_path.trim().is_empty() || pattern.trim().is_empty() {
+            return Err("Paikallisen lähteen polku ja laattamalli ovat pakollisia".into());
+        }
+        let pattern_path = Path::new(pattern);
+        if pattern_path.is_absolute()
+            || pattern_path
+                .components()
+                .any(|component| component == Component::ParentDir)
+        {
+            return Err("Laatan polun on oltava suhteellinen eikä se saa sisältää '..' -osia".into());
+        }
     }
     Ok(())
 }
@@ -141,10 +161,13 @@ fn validate_feature(feature_type: &str, geojson: &str) -> Res<()> {
         "POLYGON" => "Polygon",
         _ => return Err("Virheellinen merkinnän tyyppi".into()),
     };
+    let coordinates = value.get("coordinates");
     if value.get("type").and_then(serde_json::Value::as_str) != Some(expected_type)
-        || !value
-            .get("coordinates")
-            .is_some_and(serde_json::Value::is_array)
+        || !coordinates.is_some_and(serde_json::Value::is_array)
+        || (expected_type == "Point"
+            && coordinates
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(Vec::is_empty))
     {
         return Err("Merkinnän geometria ei vastaa ilmoitettua tyyppiä".into());
     }
@@ -204,6 +227,52 @@ fn ensure_user_feature_column(conn: &Connection, name: &str, definition: &str) -
         )
         .map_err(e)?;
     }
+
+    fn seed_default_sources(conn: &Connection) -> Res<()> {
+        let manifest = include_str!("../resources/default_maps.json");
+        let defaults: Vec<serde_json::Value> = serde_json::from_str(manifest).map_err(e)?;
+        for source in defaults {
+            let builtin_key = source
+                .get("builtin_key")
+                .and_then(serde_json::Value::as_str)
+                .ok_or("Oletuslähteeltä puuttuu builtin_key")?;
+            let exists: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM local_sources WHERE builtin_key=?1)",
+                    [builtin_key],
+                    |row| row.get(0),
+                )
+                .map_err(e)?;
+            if exists {
+                continue;
+            }
+            let api_type = source.get("api_type").and_then(serde_json::Value::as_str).unwrap_or("xyz");
+            conn.execute(
+                "INSERT INTO local_sources
+                 (name,base_path,pattern,projection,role,opacity,max_zoom,attribution,api_type,
+                  tile_size,layer_name,style,builtin_key,is_default,factory_json,kind,url,params,auth,note)
+                 VALUES (?1,'','{z}/{x}/{y}.png','EPSG:3857',?2,?3,?4,?5,?6,256,'','',?7,1,?8,?9,?10,?11,?12,?13)",
+                params![
+                    source.get("name").and_then(serde_json::Value::as_str).unwrap_or("Karttataso"),
+                    source.get("role").and_then(serde_json::Value::as_str).unwrap_or("overlay"),
+                    source.get("opacity").and_then(serde_json::Value::as_f64).unwrap_or(1.0),
+                    source.get("max_zoom").and_then(serde_json::Value::as_i64).unwrap_or(19),
+                    source.get("attribution").and_then(serde_json::Value::as_str).unwrap_or(""),
+                    api_type,
+                    builtin_key,
+                    source.to_string(),
+                    source_kind(api_type),
+                    source.get("url").and_then(serde_json::Value::as_str).unwrap_or(""),
+                    source.get("params").map(ToString::to_string).unwrap_or_else(|| "{}".into()),
+                    source.get("auth").and_then(serde_json::Value::as_str).unwrap_or(""),
+                    source.get("note").and_then(serde_json::Value::as_str).unwrap_or("")
+                ],
+            )
+            .map_err(e)?;
+        }
+        Ok(())
+    }
+    seed_default_sources(conn)?;
     Ok(())
 }
 
@@ -222,6 +291,48 @@ struct LocalSource {
     tile_size: i64,
     layer_name: String,
     style: String,
+    builtin_key: Option<String>,
+    is_default: bool,
+    factory_json: Option<String>,
+    kind: String,
+    url: String,
+    min_zoom: i64,
+    params: String,
+    auth: String,
+    note: String,
+    view_zoom_offset: i64,
+    view_magnification: i64,
+}
+
+#[derive(Deserialize)]
+struct SourceInput {
+    name: String,
+    base_path: String,
+    pattern: String,
+    projection: String,
+    role: String,
+    opacity: f64,
+    min_zoom: i64,
+    max_zoom: i64,
+    attribution: String,
+    api_type: String,
+    tile_size: i64,
+    layer_name: String,
+    style: String,
+    url: String,
+    params: String,
+    auth: String,
+    note: String,
+    view_zoom_offset: i64,
+    view_magnification: i64,
+}
+
+fn source_kind(api_type: &str) -> &'static str {
+    match api_type {
+        "vector_tile" => "vector",
+        "wfs" | "geojson" | "gpx" | "kml" | "shapefile" => "features",
+        _ => "raster",
+    }
 }
 
 #[derive(Serialize)]
@@ -312,7 +423,11 @@ fn list_sources(db: State<Db>) -> Res<Vec<LocalSource>> {
             "SELECT id, name, base_path, pattern, COALESCE(projection,'EPSG:3857'),
                   COALESCE(role,'basemap'), COALESCE(opacity,1.0), COALESCE(max_zoom,19),
                   COALESCE(attribution,''), COALESCE(api_type,'tile'), COALESCE(tile_size,256),
-                  COALESCE(layer_name,''), COALESCE(style,'') FROM local_sources ORDER BY id",
+                  COALESCE(layer_name,''), COALESCE(style,''), builtin_key,
+                  COALESCE(is_default,0), factory_json, COALESCE(kind,'raster'),
+                  COALESCE(url,''), COALESCE(min_zoom,0), COALESCE(params,'{}'),
+                  COALESCE(auth,''), COALESCE(note,''), COALESCE(view_zoom_offset,0),
+                  COALESCE(view_magnification,1) FROM local_sources ORDER BY id",
         )
         .map_err(e)?;
     let rows = s
@@ -331,6 +446,17 @@ fn list_sources(db: State<Db>) -> Res<Vec<LocalSource>> {
                 tile_size: r.get(10)?,
                 layer_name: r.get(11)?,
                 style: r.get(12)?,
+                builtin_key: r.get(13)?,
+                is_default: r.get::<_, i64>(14)? != 0,
+                factory_json: r.get(15)?,
+                kind: r.get(16)?,
+                url: r.get(17)?,
+                min_zoom: r.get(18)?,
+                params: r.get(19)?,
+                auth: r.get(20)?,
+                note: r.get(21)?,
+                view_zoom_offset: r.get(22)?,
+                view_magnification: r.get(23)?,
             })
         })
         .map_err(e)?;
@@ -368,8 +494,104 @@ fn add_source(
 #[tauri::command]
 fn delete_source(db: State<Db>, id: i64) -> Res<()> {
     let c = db.0.lock().map_err(e)?;
+    let is_default: bool = c
+        .query_row(
+            "SELECT COALESCE(is_default,0) != 0 FROM local_sources WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(e)?
+        .unwrap_or(false);
+    if is_default {
+        return Err("Oletuslähdettä ei voi poistaa".into());
+    }
     c.execute("DELETE FROM local_sources WHERE id = ?1", params![id])
         .map_err(e)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn add_source_config(db: State<Db>, source: SourceInput) -> Res<i64> {
+    validate_source(
+        &source.name,
+        &source.base_path,
+        &source.pattern,
+        &source.role,
+        source.opacity,
+        source.max_zoom,
+        &source.api_type,
+        source.tile_size,
+    )?;
+    let c = db.0.lock().map_err(e)?;
+    c.execute(
+        "INSERT INTO local_sources
+         (name, base_path, pattern, projection, role, opacity, min_zoom, max_zoom, attribution,
+          api_type, tile_size, layer_name, style, kind, url, params, auth, note,
+          view_zoom_offset, view_magnification)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
+        params![
+            source.name, source.base_path, source.pattern, source.projection, source.role,
+            source.opacity, source.min_zoom, source.max_zoom, source.attribution,
+            source.api_type, source.tile_size, source.layer_name, source.style,
+            source_kind(&source.api_type), source.url, source.params, source.auth, source.note,
+            source.view_zoom_offset, source.view_magnification
+        ],
+    )
+    .map_err(e)?;
+    Ok(c.last_insert_rowid())
+}
+
+#[tauri::command]
+fn update_source_config(db: State<Db>, id: i64, source: SourceInput) -> Res<()> {
+    validate_source(
+        &source.name,
+        &source.base_path,
+        &source.pattern,
+        &source.role,
+        source.opacity,
+        source.max_zoom,
+        &source.api_type,
+        source.tile_size,
+    )?;
+    let c = db.0.lock().map_err(e)?;
+    c.execute(
+        "UPDATE local_sources SET name=?1,base_path=?2,pattern=?3,projection=?4,role=?5,
+         opacity=?6,min_zoom=?7,max_zoom=?8,attribution=?9,api_type=?10,tile_size=?11,
+         layer_name=?12,style=?13,kind=?14,url=?15,params=?16,auth=?17,note=?18,
+         view_zoom_offset=?19,view_magnification=?20 WHERE id=?21",
+        params![
+            source.name, source.base_path, source.pattern, source.projection, source.role,
+            source.opacity, source.min_zoom, source.max_zoom, source.attribution,
+            source.api_type, source.tile_size, source.layer_name, source.style,
+            source_kind(&source.api_type), source.url, source.params, source.auth, source.note,
+            source.view_zoom_offset, source.view_magnification, id
+        ],
+    )
+    .map_err(e)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn reset_source_to_default(db: State<Db>, id: i64) -> Res<()> {
+    let c = db.0.lock().map_err(e)?;
+    let factory: String = c
+        .query_row("SELECT factory_json FROM local_sources WHERE id=?1 AND is_default=1", [id], |row| row.get(0))
+        .map_err(e)?;
+    let value: serde_json::Value = serde_json::from_str(&factory).map_err(e)?;
+    let text = |key: &str| value.get(key).and_then(serde_json::Value::as_str).unwrap_or("");
+    c.execute(
+        "UPDATE local_sources SET name=?1,role=?2,api_type=?3,url=?4,attribution=?5,
+         max_zoom=?6,opacity=?7,params=?8,auth=?9,note=?10,kind=?11,
+         base_path=COALESCE(base_path,''),pattern=COALESCE(pattern,'') WHERE id=?12",
+        params![
+            text("name"), text("role"), text("api_type"), text("url"), text("attribution"),
+            value.get("max_zoom").and_then(serde_json::Value::as_i64).unwrap_or(19),
+            value.get("opacity").and_then(serde_json::Value::as_f64).unwrap_or(1.0),
+            text("params"), text("auth"), text("note"), source_kind(text("api_type")), id
+        ],
+    )
+    .map_err(e)?;
     Ok(())
 }
 
@@ -423,6 +645,63 @@ async fn fetch_lantmateriet_tile(_db: State<'_, Db>, z: u32, x: u32, y: i32) -> 
     if y < 0 {
         return Err("laatan y-koordinaatti ei voi olla negatiivinen".into());
     }
+
+    async fn fetch_remote_tile_impl(
+        db: State<'_, Db>,
+        source_id: i64,
+        z: u32,
+        x: u32,
+        y: i32,
+    ) -> Res<Vec<u8>> {
+        if y < 0 {
+            return Err("laatan y-koordinaatti ei voi olla negatiivinen".into());
+        }
+        validate_tile_coordinates(z, x, y as u32)?;
+        let (template, auth): (String, String) = {
+            let c = db.0.lock().map_err(e)?;
+            c.query_row(
+                "SELECT COALESCE(url,''), COALESCE(auth,'') FROM local_sources WHERE id=?1",
+                [source_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(e)?
+        };
+        if template.is_empty() {
+            return Err("Karttalähteen URL puuttuu".into());
+        }
+        let mut url = template
+            .replace("{z}", &z.to_string())
+            .replace("{x}", &x.to_string())
+            .replace("{y}", &y.to_string());
+        if url.contains("{secret:") {
+            for key in SECRET_KEYS {
+                let token = format!("{{secret:{key}}}");
+                if url.contains(&token) {
+                    url = url.replace(&token, &get_secret(key)?.unwrap_or_default());
+                }
+            }
+        }
+        let client = LANTMATERIET_ASYNC_CLIENT.get_or_init(reqwest::Client::new);
+        let request = client.get(&url);
+        let request = if let Ok(value) = serde_json::from_str::<serde_json::Value>(&auth) {
+            let username_key = value.get("username").and_then(serde_json::Value::as_str);
+            let password_key = value.get("password").and_then(serde_json::Value::as_str);
+            match (username_key, password_key) {
+                (Some(username_key), Some(password_key)) => request.basic_auth(
+                    get_secret(username_key)?.unwrap_or_default(),
+                    Some(get_secret(password_key)?.unwrap_or_default()),
+                ),
+                _ => request,
+            }
+        } else {
+            request
+        };
+        let response = request.send().await.map_err(e)?;
+        if !response.status().is_success() {
+            return Err(format!("Etäpalvelin palautti HTTP {}", response.status()));
+        }
+        response.bytes().await.map(|bytes| bytes.to_vec()).map_err(e)
+    }
     validate_tile_coordinates(z, x, y as u32)?;
     let username = get_secret("lantmaterietUsername")?.unwrap_or_default();
     let password = get_secret("lantmaterietPassword")?.unwrap_or_default();
@@ -461,6 +740,46 @@ async fn fetch_lantmateriet_tile(_db: State<'_, Db>, z: u32, x: u32, y: i32) -> 
         entries.insert(url, (Instant::now(), bytes.clone()));
     }
     Ok(bytes)
+}
+
+fn read_remote_tile(app: &AppHandle, path: &str) -> Res<(Vec<u8>, &'static str)> {
+    let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
+    if parts.len() != 4 {
+        return Err("virheellinen etälaatan polku".into());
+    }
+    let source_id: i64 = parts[0].parse().map_err(e)?;
+    let z: u32 = parts[1].parse().map_err(e)?;
+    let x: u32 = parts[2].parse().map_err(e)?;
+    let y: u32 = parts[3].split('.').next().unwrap_or("").parse().map_err(e)?;
+    validate_tile_coordinates(z, x, y)?;
+    let db = app.try_state::<Db>().ok_or("tietokanta ei valmis")?;
+    let (template, auth): (String, String) = {
+        let c = db.0.lock().map_err(e)?;
+        c.query_row("SELECT COALESCE(url,''), COALESCE(auth,'') FROM local_sources WHERE id=?1", [source_id], |row| Ok((row.get(0)?, row.get(1)?))).map_err(e)?
+    };
+    let mut url = template.replace("{z}", &z.to_string()).replace("{x}", &x.to_string()).replace("{y}", &y.to_string());
+    for key in SECRET_KEYS {
+        let token = format!("{{secret:{key}}}");
+        if url.contains(&token) {
+            url = url.replace(&token, &get_secret(key)?.unwrap_or_default());
+        }
+    }
+    let client = LANTMATERIET_CLIENT.get_or_init(reqwest::blocking::Client::new);
+    let request = client.get(url);
+    let request = if let Ok(value) = serde_json::from_str::<serde_json::Value>(&auth) {
+        match (value.get("username").and_then(serde_json::Value::as_str), value.get("password").and_then(serde_json::Value::as_str)) {
+            (Some(username), Some(password)) => request.basic_auth(get_secret(username)?.unwrap_or_default(), Some(get_secret(password)?.unwrap_or_default())),
+            _ => request,
+        }
+    } else {
+        request
+    };
+    let response = request.send().map_err(e)?;
+    if !response.status().is_success() {
+        return Err(format!("Etäpalvelin palautti HTTP {}", response.status()));
+    }
+    let bytes = response.bytes().map_err(e)?.to_vec();
+    Ok((bytes.clone(), mime_of(&bytes)))
 }
 
 // ---------- Merkinnät ja mittaukset ----------
@@ -746,8 +1065,20 @@ pub fn run() {
                     .unwrap(),
             }
         })
-        .register_uri_scheme_protocol("lantmateriet-tile", |ctx, request| {
-            match read_lantmateriet_tile(ctx.app_handle(), request.uri().path()) {
+        .register_uri_scheme_protocol("remote-tile", |ctx, request| {
+            let parts: Vec<&str> = request.uri().path().trim_matches('/').split('/').collect();
+            if parts.len() != 4 {
+                return Response::builder().status(400).body(Vec::new()).unwrap();
+            }
+            let source_id = parts[0].parse::<i64>();
+            let z = parts[1].parse::<u32>();
+            let x = parts[2].parse::<u32>();
+            let y = parts[3].split('.').next().unwrap_or("").parse::<i32>();
+            let result = match (source_id, z, x, y) {
+                (Ok(_), Ok(_), Ok(_), Ok(_)) => read_remote_tile(ctx.app_handle(), request.uri().path()),
+                _ => Err("virheellinen etälaatan polku".into()),
+            };
+            match result {
                 Ok((bytes, mime)) => Response::builder()
                     .status(200)
                     .header("Content-Type", mime)
@@ -783,6 +1114,28 @@ pub fn run() {
                 .map_err(std::io::Error::other)?;
             ensure_local_source_column(&conn, "style", "TEXT NOT NULL DEFAULT ''")
                 .map_err(std::io::Error::other)?;
+            ensure_local_source_column(&conn, "builtin_key", "TEXT")
+                .map_err(std::io::Error::other)?;
+            ensure_local_source_column(&conn, "is_default", "INTEGER NOT NULL DEFAULT 0")
+                .map_err(std::io::Error::other)?;
+            ensure_local_source_column(&conn, "factory_json", "TEXT")
+                .map_err(std::io::Error::other)?;
+            ensure_local_source_column(&conn, "kind", "TEXT NOT NULL DEFAULT 'raster'")
+                .map_err(std::io::Error::other)?;
+            ensure_local_source_column(&conn, "url", "TEXT NOT NULL DEFAULT ''")
+                .map_err(std::io::Error::other)?;
+            ensure_local_source_column(&conn, "min_zoom", "INTEGER NOT NULL DEFAULT 0")
+                .map_err(std::io::Error::other)?;
+            ensure_local_source_column(&conn, "params", "TEXT NOT NULL DEFAULT '{}'")
+                .map_err(std::io::Error::other)?;
+            ensure_local_source_column(&conn, "auth", "TEXT NOT NULL DEFAULT ''")
+                .map_err(std::io::Error::other)?;
+            ensure_local_source_column(&conn, "note", "TEXT NOT NULL DEFAULT ''")
+                .map_err(std::io::Error::other)?;
+            ensure_local_source_column(&conn, "view_zoom_offset", "INTEGER NOT NULL DEFAULT 0")
+                .map_err(std::io::Error::other)?;
+            ensure_local_source_column(&conn, "view_magnification", "INTEGER NOT NULL DEFAULT 1")
+                .map_err(std::io::Error::other)?;
             ensure_user_feature_column(&conn, "folder_id", "TEXT NOT NULL DEFAULT ''")
                 .map_err(std::io::Error::other)?;
             ensure_user_feature_column(&conn, "color", "TEXT NOT NULL DEFAULT '#dc2626'")
@@ -800,7 +1153,9 @@ pub fn run() {
             add_source,
             delete_source,
             update_source,
-            fetch_lantmateriet_tile,
+            add_source_config,
+            update_source_config,
+            reset_source_to_default,
             list_features,
             add_feature,
             update_feature,

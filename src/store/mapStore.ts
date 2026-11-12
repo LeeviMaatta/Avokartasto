@@ -2,9 +2,9 @@ import { create } from "zustand";
 import * as bridge from "../infrastructure/tauriBridge";
 import type { LocalSource } from "../infrastructure/tauriBridge";
 import { DEFAULT_SETTINGS } from "../features/settings/model/defaultSettings";
-import type { LayerCopy, Measure, ProfilePoint, SelectedFeature, Tool } from "../features/map/model/mapTypes";
+import type { Measure, ProfilePoint, SelectedFeature, Tool } from "../features/map/model/mapTypes";
 
-export type { LayerCopy, Measure, ProfilePoint, SelectedFeature, Tool } from "../features/map/model/mapTypes";
+export type { Measure, ProfilePoint, SelectedFeature, Tool } from "../features/map/model/mapTypes";
 export { DEFAULT_SETTINGS } from "../features/settings/model/defaultSettings";
 
 interface State {
@@ -15,7 +15,6 @@ interface State {
   overlayOrder: string[];
   basemapOrder: string[];
   hiddenLayers: string[];
-  layerCopies: LayerCopy[];
   cursor: [number, number] | null;
   centerCoord: [number, number] | null;
   tool: Tool;
@@ -43,9 +42,6 @@ interface State {
   reorderOverlays: (fromId: string, toId: string) => void;
   reorderLayerList: (kind: "overlay" | "basemap", fromId: string, toId: string) => void;
   setLayerOrder: (kind: "overlay" | "basemap", ids: string[]) => void;
-  duplicateOverlay: (id: string) => void;
-  duplicateLayer: (sourceId: string, name: string, role: "basemap" | "overlay") => void;
-  deleteLayerCopy: (id: string) => void;
   bumpFeatures: () => void;
   clearPersistenceError: () => void;
   setPendingMarker: (coordinates: [number, number] | null) => void;
@@ -59,7 +55,6 @@ export const useMapStore = create<State>((set, get) => ({
   overlayOrder: [],
   basemapOrder: [],
   hiddenLayers: [],
-  layerCopies: [],
   cursor: null,
   centerCoord: null,
   tool: "none",
@@ -83,7 +78,6 @@ export const useMapStore = create<State>((set, get) => ({
     let overlayOrder: string[] = [];
     let basemapOrder: string[] = [];
     let hiddenLayers: string[] = [];
-    let layerCopies: LayerCopy[] = [];
     try {
       const parsed = JSON.parse(merged.overlays ?? "[]");
       if (Array.isArray(parsed)) overlays = parsed.filter((id): id is string => typeof id === "string");
@@ -104,19 +98,25 @@ export const useMapStore = create<State>((set, get) => ({
         hiddenLayers = [];
       }
     }
-    try {
-      const parsed = JSON.parse(merged.layerCopies ?? "[]");
-      if (Array.isArray(parsed)) {
-        layerCopies = parsed.filter((copy): copy is LayerCopy =>
-          copy && typeof copy.id === "string" && typeof copy.sourceId === "string" &&
-          typeof copy.name === "string" && (copy.role === "basemap" || copy.role === "overlay") &&
-          typeof copy.opacity === "number"
-        );
-      }
-    } catch {
-      layerCopies = [];
-    }
-    set({ settings: merged, sources, basemap: merged.basemap ?? "osm", overlays, overlayOrder, basemapOrder, hiddenLayers, layerCopies });
+    const byBuiltin = new Map(sources.filter((source) => source.builtin_key).map((source) => [source.builtin_key!, `src:${source.id}`]));
+    const byId = new Map(sources.map((source) => [`src:${source.id}`, source]));
+    const normalizeId = (id: string) => {
+      if (id.startsWith("src:")) return byId.has(id) ? id : null;
+      if (id.startsWith("local:")) return byId.has(`src:${id.slice(6)}`) ? `src:${id.slice(6)}` : null;
+      if (id.startsWith("copy:")) return null;
+      return byBuiltin.get(id) ?? null;
+    };
+    const normalized = (ids: string[]) => ids.map(normalizeId).filter((id): id is string => Boolean(id));
+    const normalizedBasemap = normalizeId(merged.basemap ?? "osm") ?? byBuiltin.get("osm") ?? "";
+    set({
+      settings: { ...merged, basemap: normalizedBasemap },
+      sources,
+      basemap: normalizedBasemap,
+      overlays: normalized(overlays),
+      overlayOrder: normalized(overlayOrder),
+      basemapOrder: normalized(basemapOrder),
+      hiddenLayers: normalized(hiddenLayers),
+    });
   },
   setSetting: async (k, v) => {
     try {
@@ -161,7 +161,8 @@ export const useMapStore = create<State>((set, get) => ({
   hideLayer: (id, role) => {
     const hiddenLayers = get().hiddenLayers.includes(id) ? get().hiddenLayers : [...get().hiddenLayers, id];
     const overlays = role === "overlay" ? get().overlays.filter((layer) => layer !== id) : get().overlays;
-    set({ hiddenLayers, overlays, ...(role === "basemap" && get().basemap === id ? { basemap: "osm" } : {}) });
+    const fallback = get().sources.find((source) => source.builtin_key === "osm");
+    set({ hiddenLayers, overlays, ...(role === "basemap" && get().basemap === id && fallback ? { basemap: `src:${fallback.id}` } : {}) });
     void get().setSetting("hiddenLayers", JSON.stringify(hiddenLayers));
     if (role === "overlay") void get().setSetting("overlays", JSON.stringify(overlays));
   },
@@ -201,28 +202,6 @@ export const useMapStore = create<State>((set, get) => ({
     const unique = [...new Set(ids)];
     set(kind === "overlay" ? { overlayOrder: unique } : { basemapOrder: unique });
     void get().setSetting(key, JSON.stringify(unique));
-  },
-  duplicateOverlay: (id) => {
-    const overlays = [...get().overlays, id];
-    set({ overlays });
-    void get().setSetting("overlays", JSON.stringify(overlays));
-  },
-  duplicateLayer: (sourceId, name, role) => {
-    const copy: LayerCopy = {
-      id: `${sourceId}-${Date.now()}`,
-      sourceId,
-      name: `${name} (kopio)`,
-      role,
-      opacity: 1,
-    };
-    const layerCopies = [...get().layerCopies, copy];
-    set({ layerCopies });
-    void get().setSetting("layerCopies", JSON.stringify(layerCopies));
-  },
-  deleteLayerCopy: (id) => {
-    const layerCopies = get().layerCopies.filter((copy) => copy.id !== id);
-    set({ layerCopies });
-    void get().setSetting("layerCopies", JSON.stringify(layerCopies));
   },
   bumpFeatures: () => set({ featuresVersion: get().featuresVersion + 1 }),
   clearPersistenceError: () => set({ persistenceError: null }),

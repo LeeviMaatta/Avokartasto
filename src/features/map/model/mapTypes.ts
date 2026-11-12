@@ -21,10 +21,3 @@ export interface SelectedFeature {
   geojson?: string;
 }
 
-export interface LayerCopy {
-  id: string;
-  sourceId: string;
-  name: string;
-  role: "basemap" | "overlay";
-  opacity: number;
-}

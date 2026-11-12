@@ -18,7 +18,7 @@ export default function LayerList({
     <div
       key={layer.id}
       onPointerEnter={() => onMoveDraggedLayer(role, layer.id, ids)}
-      onContextMenu={(event) => onContextMenu(event, layer.id, layer.name, role === "overlay", layer.source, layer.copy)}
+      onContextMenu={(event) => onContextMenu(event, layer.id, layer.name, role === "overlay", layer.source)}
       className={`flex items-center gap-2 rounded py-1 ${dragging?.kind === role && dragging.id === layer.id ? "bg-blue-100 ring-1 ring-blue-400 dark:bg-blue-900/60" : ""} ${missing(layer.needs) ? "opacity-40" : ""}`}
       title={missing(layer.needs) ? "Lisää API-avain asetuksissa" : layer.note}
     >
@@ -28,6 +28,8 @@ export default function LayerList({
       <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
         <input type={role === "basemap" ? "radio" : "checkbox"} name={role === "basemap" ? "base" : undefined} checked={role === "basemap" ? basemap === layer.id : activeOverlays.includes(layer.id)} onChange={() => role === "basemap" ? onSetBasemap(layer.id) : onToggleOverlay(layer.id)} />
         <span className="truncate">{layer.name}</span>
+        {layer.source?.is_default && <span className="rounded bg-slate-100 px-1 text-[10px] text-slate-500">oletus</span>}
+        {layer.source && !layer.source.is_default && <span className="rounded bg-blue-50 px-1 text-[10px] text-blue-600">tuotu</span>}
       </label>
     </div>
   );

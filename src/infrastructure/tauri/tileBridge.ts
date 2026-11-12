@@ -7,10 +7,10 @@ export const tileUrl = (id: number) =>
     ? `http://app-tile.localhost/${id}/{z}/{x}/{y}`
     : `app-tile://localhost/${id}/{z}/{x}/{y}`;
 
-export const lantmaterietTileUrl = () =>
+export const remoteTileUrl = (id: number) =>
   navigator.userAgent.includes("Windows")
-    ? "http://lantmateriet-tile.localhost/{z}/{x}/{y}.png"
-    : "lantmateriet-tile://localhost/{z}/{x}/{y}.png";
+    ? `http://remote-tile.localhost/${id}/{z}/{x}/{y}.png`
+    : `remote-tile://localhost/${id}/{z}/{x}/{y}.png`;
 
-export const fetchLantmaterietTile = (z: number, x: number, y: number) =>
-  invokeTauri<number[]>("fetch_lantmateriet_tile", { z, x, y });
+export const fetchRemoteTile = (sourceId: number, z: number, x: number, y: number) =>
+  invokeTauri<number[]>("fetch_remote_tile", { sourceId, z, x, y });
