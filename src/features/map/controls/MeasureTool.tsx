@@ -43,6 +43,8 @@ export default function MeasureTool() {
   const [msg, setMsg] = useState("");
   const [markerDraft, setMarkerDraft] = useState<MarkerDraft | null>(null);
   const [markerBusy, setMarkerBusy] = useState(false);
+  const [savingMeasurement, setSavingMeasurement] = useState(false);
+  const savingMeasurementRef = useRef(false);
 
   const markerFolders = useMemo<MarkerFolder[]>(() => {
     try {
@@ -317,30 +319,39 @@ export default function MeasureTool() {
   }
 
   const save = async () => {
-    if (!measure) return;
+    if (!measure || savingMeasurementRef.current) return;
+    savingMeasurementRef.current = true;
+    setSavingMeasurement(true);
     setMsg("");
+    const currentState = useMapStore.getState();
+    const targetSavedId = currentState.editingFeatureId ?? editingFeatureId;
+    const targetUnsavedId = currentState.activeUnsavedMeasurementId ?? activeUnsavedMeasurementId;
+    const targetMeasure = currentState.measure ?? measure;
     try {
       const resolvedTitle =
         title.trim() ||
-        (await resolveNearestPlaceName(measure.geojson, "Mittaus"));
-      const featureType = measure.kind === "area" ? "POLYGON" : "LINESTRING";
-      if (editingFeatureId) {
+        (await resolveNearestPlaceName(targetMeasure.geojson, "Mittaus"));
+      const featureType = targetMeasure.kind === "area" ? "POLYGON" : "LINESTRING";
+      if (targetSavedId !== null) {
         await updateFeature(
-          editingFeatureId,
+          targetSavedId,
           resolvedTitle,
           selectedFeature?.description ?? null,
           featureType,
-          measure.geojson,
+          targetMeasure.geojson,
           selectedFeature?.folder_id ?? "",
           savedMeasurementColor,
         );
       } else {
-        await addFeature(resolvedTitle, null, featureType, measure.geojson, "", savedMeasurementColor);
+        await addFeature(resolvedTitle, null, featureType, targetMeasure.geojson, "", savedMeasurementColor);
       }
       bumpFeatures();
       window.dispatchEvent(
         new CustomEvent("remove-measurement-feature", {
-          detail: editingFeatureId !== null ? { savedId: editingFeatureId } : { unsavedId: activeUnsavedMeasurementId },
+          detail:
+            targetSavedId !== null
+              ? { savedId: targetSavedId }
+              : { unsavedId: targetUnsavedId, geojson: targetMeasure.geojson },
         }),
       );
       useMapStore.setState({ measure: null, profile: null, profileVisible: false, profileError: null, editingFeatureId: null, activeUnsavedMeasurementId: null, selectedFeature: null });
@@ -348,6 +359,9 @@ export default function MeasureTool() {
       setMsg("Tallennettu");
     } catch (error) {
       setMsg(`Tallennus epäonnistui: ${String(error)}`);
+    } finally {
+      savingMeasurementRef.current = false;
+      setSavingMeasurement(false);
     }
   };
 
@@ -396,7 +410,7 @@ export default function MeasureTool() {
               : <>Pituus: <b className="text-slate-900 dark:text-white">{formatDistance(measure.length, units)}</b></>}
           </span>
           <input className="w-28 sm:w-36 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" placeholder="Mittauksen nimi" aria-label="Mittauksen nimi" value={title} onChange={(event) => setTitle(event.target.value)} />
-          <button className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white shadow hover:bg-blue-700 transition" onClick={() => void save()}>
+          <button disabled={savingMeasurement} className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white shadow hover:bg-blue-700 disabled:opacity-60 transition" onClick={() => void save()}>
             <Save size={13} /> {editingFeatureId ? "Tallenna muutokset" : "Tallenna"}
           </button>
           <button className="flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1 text-xs font-medium text-white shadow hover:bg-red-700 transition" onClick={() => void deleteCurrentMeasurement()} title="Poista mittaus">

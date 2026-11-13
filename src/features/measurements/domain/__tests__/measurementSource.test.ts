@@ -1,4 +1,5 @@
 import Feature from "ol/Feature";
+import GeoJSON from "ol/format/GeoJSON";
 import LineString from "ol/geom/LineString";
 import VectorSource from "ol/source/Vector";
 import { describe, expect, it } from "vitest";
@@ -6,6 +7,7 @@ import {
   clearSavedEditFeatures,
   ensureUnsavedMeasurementId,
   findTargetMeasurementFeature,
+  removeUnsavedMeasurementByGeojson,
   removeUnsavedMeasurementById,
 } from "../measurementSource";
 
@@ -60,5 +62,26 @@ describe("measurementSource selective cleanup", () => {
     expect(findTargetMeasurementFeature(source, null, id1)).toBe(unsaved1);
     expect(findTargetMeasurementFeature(source, 77, id1)).toBe(savedClone);
     expect(findTargetMeasurementFeature(source, null, null)).toBeNull();
+  });
+
+  it("removes unsaved measurements matching geojson even if unsavedId was cleared, preserving saved clones and other sketches", () => {
+    const source = new VectorSource();
+    const geom1 = new LineString([[0, 0], [1000, 1000]]);
+    const geom2 = new LineString([[2000, 2000], [3000, 3000]]);
+    const unsaved1 = new Feature({ geometry: geom1 });
+    const unsaved2 = new Feature({ geometry: geom2 });
+    const savedClone = new Feature({ geometry: geom1.clone() });
+    savedClone.set("id", 99);
+    source.addFeatures([unsaved1, unsaved2, savedClone]);
+
+    const geojson1 = new GeoJSON().writeGeometry(geom1, {
+      dataProjection: "EPSG:4326",
+      featureProjection: "EPSG:3857",
+    });
+
+    expect(removeUnsavedMeasurementByGeojson(source, geojson1)).toBe(1);
+    expect(source.hasFeature(unsaved1)).toBe(false);
+    expect(source.hasFeature(unsaved2)).toBe(true);
+    expect(source.hasFeature(savedClone)).toBe(true);
   });
 });

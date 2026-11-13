@@ -53,16 +53,10 @@ export function useGlobalKeyboardShortcuts(): void {
           dispatchShortcutEvent("kb-focus-toolbar");
           break;
         case "toggleMeasure":
-          useMapStore.setState({
-            tool: state.tool === "measure" ? "none" : "measure",
-            activeUnsavedMeasurementId: null,
-          });
+          state.toggleTool("measure");
           break;
         case "toggleRoute":
-          useMapStore.setState({
-            tool: state.tool === "route" ? "none" : "route",
-            activeUnsavedMeasurementId: null,
-          });
+          state.toggleTool("route");
           break;
         case "addMarkerAtCenter":
           if (state.centerCoord) {

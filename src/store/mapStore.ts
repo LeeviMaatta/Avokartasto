@@ -52,6 +52,7 @@ interface State {
   setLayerOrder: (kind: "overlay" | "basemap", ids: string[]) => void;
   bumpFeatures: () => void;
   clearPersistenceError: () => void;
+  toggleTool: (nextTool: Tool) => void;
   setPendingMarker: (coordinates: [number, number] | null) => void;
   setRoutePoint: (index: number, point: RoutePoint | null) => void;
   addRouteWaypoint: () => void;
@@ -251,6 +252,22 @@ export const useMapStore = create<State>((set, get) => ({
   },
   bumpFeatures: () => set({ featuresVersion: get().featuresVersion + 1 }),
   clearPersistenceError: () => set({ persistenceError: null }),
+  toggleTool: (nextTool) => {
+    const state = get();
+    if (state.editingFeatureId !== null && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId: state.editingFeatureId } }));
+    }
+    set({
+      tool: state.tool === nextTool ? "none" : nextTool,
+      measure: null,
+      profile: null,
+      profileVisible: false,
+      profileError: null,
+      editingFeatureId: null,
+      activeUnsavedMeasurementId: null,
+      selectedFeature: null,
+    });
+  },
   setPendingMarker: (coordinates) => set({ pendingMarker: coordinates }),
   setRoutePoint: (index, point) => {
     const next = [...get().routePoints];

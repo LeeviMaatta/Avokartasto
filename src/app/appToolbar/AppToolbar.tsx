@@ -24,11 +24,7 @@ export default function AppToolbar() {
         ? "bg-blue-600 border-blue-500 text-white shadow-blue-500/20" 
         : "border-slate-200/80 bg-white/95 text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-200 dark:hover:bg-zinc-900 dark:hover:text-white"
     }`;
-  const toggle = (nextTool: Tool) =>
-    useMapStore.setState({
-      tool: tool === nextTool ? "none" : nextTool,
-      activeUnsavedMeasurementId: null,
-    });
+  const toggle = (nextTool: Tool) => useMapStore.getState().toggleTool(nextTool);
   const toggleTheme = () => {
     void useMapStore.getState().setSetting("theme", theme === "dark" ? "light" : "dark");
   };

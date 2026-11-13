@@ -37,6 +37,7 @@ import { lineStyle, markerStyle, measurementStyle } from "./styles/featureStyles
 import {
   clearSavedEditFeatures,
   ensureUnsavedMeasurementId,
+  removeUnsavedMeasurementByGeojson,
   removeUnsavedMeasurementById,
 } from "../measurements/domain/measurementSource";
 import { useMapMeasurementInteractions } from "./hooks/useMapMeasurementInteractions";
@@ -44,6 +45,8 @@ import { useMapFeatures } from "./hooks/useMapFeatures";
 import { useMapLayers } from "./hooks/useMapLayers";
 import FeatureContextMenu from "./components/FeatureContextMenu";
 import { recordDebugEvent, setDebugMap } from "../debug/debugMonitor";
+import { focusMapViewport } from "../../shared/keyboardNavigation";
+import { shouldFocusMapOnWheel } from "../../shared/mapFocus";
 
 export default function MapContainer() {
   const el = useRef<HTMLDivElement>(null);
@@ -99,12 +102,31 @@ export default function MapContainer() {
     let saveViewTimeout: number | null = null;
     let pendingCursor: [number, number] | null = null;
     const preventBrowserContextMenu = (event: MouseEvent) => event.preventDefault();
+    const focusMapOnWheel = (event: WheelEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      const targetEl = event.target instanceof HTMLElement ? event.target : target?.parentElement ?? null;
+      if (
+        shouldFocusMapOnWheel({
+          targetInsideMap: Boolean(target && mapElement?.contains(target)),
+          targetInControlOrEditable: Boolean(targetEl?.closest(".ol-control, input, textarea, select")),
+          hasOpenModal: Boolean(document.querySelector('[aria-modal="true"]')),
+          mapAlreadyFocused: document.activeElement === mapElement,
+        })
+      ) {
+        focusMapViewport();
+      }
+    };
     const removeMeasurementFeature = (event: Event) => {
-      const detail = (event as CustomEvent<{ savedId?: number; unsavedId?: string | null }>).detail;
+      const detail = (event as CustomEvent<{ savedId?: number | null; unsavedId?: string | null; geojson?: string }>).detail;
       if (detail?.savedId !== undefined && detail?.savedId !== null) {
         clearSavedEditFeatures(measureSrc.current, detail.savedId);
-      } else if (detail?.unsavedId) {
-        removeUnsavedMeasurementById(measureSrc.current, detail.unsavedId);
+      } else {
+        if (detail?.unsavedId) {
+          removeUnsavedMeasurementById(measureSrc.current, detail.unsavedId);
+        }
+        if (detail?.geojson) {
+          removeUnsavedMeasurementByGeojson(measureSrc.current, detail.geojson);
+        }
       }
       profileRequest.current += 1;
     };
@@ -150,6 +172,7 @@ export default function MapContainer() {
       map.getView().animate({ center: fromLonLat([detail.lon, detail.lat]), zoom: targetZoom, duration: 500 });
     };
     mapElement?.addEventListener("contextmenu", preventBrowserContextMenu);
+    mapElement?.addEventListener("wheel", focusMapOnWheel, { capture: true, passive: true });
     window.addEventListener("remove-measurement-feature", removeMeasurementFeature);
     window.addEventListener("open-measurement-editor", handleOpenMeasurementEditor);
 
@@ -488,6 +511,7 @@ export default function MapContainer() {
       if (centerRafId !== null) window.cancelAnimationFrame(centerRafId);
       if (saveViewTimeout !== null) window.clearTimeout(saveViewTimeout);
       mapElement?.removeEventListener("contextmenu", preventBrowserContextMenu);
+      mapElement?.removeEventListener("wheel", focusMapOnWheel, { capture: true });
       window.removeEventListener("remove-measurement-feature", removeMeasurementFeature);
       window.removeEventListener("open-measurement-editor", handleOpenMeasurementEditor);
       window.removeEventListener("map-search-location", handleSearchLocation);
@@ -906,6 +930,63 @@ export default function MapContainer() {
       mapElement.style.cursor = "";
     }
   }, [tool, routePickTarget]);
+
+  useEffect(() => {
+    const state = useMapStore.getState();
+    const hiddenIds = new Set<number>();
+    try {
+      const parsed = JSON.parse(hiddenFeaturesSetting ?? "[]");
+      if (Array.isArray(parsed)) {
+        parsed.forEach((id) => {
+          if (Number.isInteger(id)) hiddenIds.add(id);
+        });
+      }
+    } catch {
+      // Sivuutetaan virheellinen JSON
+    }
+    const hiddenFolderIds = new Set<string>();
+    try {
+      const parsedFolders = JSON.parse(settings.markerFolders ?? "[]") as Array<{ id?: string; visible?: boolean }>;
+      if (Array.isArray(parsedFolders)) {
+        parsedFolders.forEach((folder) => {
+          if (typeof folder?.id === "string" && folder.visible === false) {
+            hiddenFolderIds.add(folder.id);
+          }
+        });
+      }
+    } catch {
+      // Sivuutetaan virheellinen JSON
+    }
+
+    hiddenIds.forEach((id) => clearSavedEditFeatures(measureSrc.current, id));
+
+    const editedId = state.editingFeatureId;
+    const editedHidden =
+      editedId !== null &&
+      (hiddenIds.has(editedId) ||
+        (state.selectedFeature?.id === editedId &&
+          Boolean(state.selectedFeature.folder_id) &&
+          hiddenFolderIds.has(state.selectedFeature.folder_id!)));
+
+    if (editedHidden && editedId !== null) {
+      clearSavedEditFeatures(measureSrc.current, editedId);
+      profileRequest.current += 1;
+      useMapStore.setState({
+        editingFeatureId: null,
+        measure: null,
+        profile: null,
+        profileVisible: false,
+        profileError: null,
+        selectedFeature: null,
+      });
+      return;
+    }
+
+    const sel = state.selectedFeature;
+    if (sel && (hiddenIds.has(sel.id) || (Boolean(sel.folder_id) && hiddenFolderIds.has(sel.folder_id!)))) {
+      useMapStore.setState({ selectedFeature: null });
+    }
+  }, [hiddenFeaturesSetting, settings.markerFolders]);
 
   useMapFeatures({
     featureSource: featSrc,

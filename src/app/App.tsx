@@ -14,6 +14,8 @@ import DebugOverlay from "../features/debug/DebugOverlay";
 import { useDebugStore } from "../features/debug/debugStore";
 import LoadingScreen from "./LoadingScreen";
 import { useGlobalKeyboardShortcuts } from "./useGlobalKeyboardShortcuts";
+import { focusMapViewport } from "../shared/keyboardNavigation";
+import { attachMapFocusRestoration } from "../shared/mapFocus";
 import type { UiStyle } from "../features/settings/model/settingTypes";
 
 const ElevationChart = lazy(() => import("../features/measurements/ElevationChart"));
@@ -65,6 +67,17 @@ export default function App() {
       setAppLoading(false);
     });
   }, [loadAll, loadDebugSettings]);
+
+  useEffect(() => attachMapFocusRestoration(), []);
+
+  useEffect(() => {
+    if (appLoading) return;
+    if (document.querySelector('[aria-modal="true"]')) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || active === document.documentElement) {
+      focusMapViewport();
+    }
+  }, [appLoading]);
 
   useEffect(() => {
     const preventBrowserContextMenu = (event: MouseEvent) => {

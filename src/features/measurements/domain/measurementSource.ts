@@ -1,4 +1,5 @@
 import type Feature from "ol/Feature";
+import GeoJSON from "ol/format/GeoJSON";
 import type VectorSource from "ol/source/Vector";
 
 let unsavedSeq = 0;
@@ -47,10 +48,35 @@ export function clearSavedEditFeatures(source: VectorSource, savedId?: number) {
 }
 
 /** Removes a single unsaved measurement matching `unsavedId`, preserving all other measurements. */
-export function removeUnsavedMeasurementById(source: VectorSource, unsavedId: string) {
+export function removeUnsavedMeasurementById(source: VectorSource, unsavedId: string): number {
+  let removed = 0;
   source.getFeatures().forEach((feat) => {
     if (feat.get("unsavedId") === unsavedId) {
       source.removeFeature(feat);
+      removed += 1;
     }
   });
+  return removed;
+}
+
+/** Removes unsaved measurements matching `geojson` (EPSG:4326), leaving saved edit clones and other sketches intact. */
+export function removeUnsavedMeasurementByGeojson(source: VectorSource, geojson: string): number {
+  if (!geojson) return 0;
+  const format = new GeoJSON();
+  let removed = 0;
+  source.getFeatures().forEach((feat) => {
+    const savedId = feat.get("id");
+    if (savedId !== undefined && savedId !== null) return;
+    const geom = feat.getGeometry();
+    if (!geom) return;
+    const featureGeojson = format.writeGeometry(geom, {
+      dataProjection: "EPSG:4326",
+      featureProjection: "EPSG:3857",
+    });
+    if (featureGeojson === geojson) {
+      source.removeFeature(feat);
+      removed += 1;
+    }
+  });
+  return removed;
 }

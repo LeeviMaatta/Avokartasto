@@ -80,4 +80,20 @@ describe("mapStore", () => {
     useMapStore.getState().clearRoute();
     expect(useMapStore.getState().routePoints).toEqual([null, null]);
   });
+
+  it("resets active measurement state when toggling tools", () => {
+    useMapStore.setState({
+      tool: "measure",
+      measure: { length: 120, geojson: "{\"type\":\"LineString\",\"coordinates\":[]}", kind: "distance" },
+      activeUnsavedMeasurementId: "unsaved-1",
+      editingFeatureId: 5,
+    });
+
+    useMapStore.getState().toggleTool("measure");
+    const state = useMapStore.getState();
+    expect(state.tool).toBe("none");
+    expect(state.measure).toBeNull();
+    expect(state.activeUnsavedMeasurementId).toBeNull();
+    expect(state.editingFeatureId).toBeNull();
+  });
 });
