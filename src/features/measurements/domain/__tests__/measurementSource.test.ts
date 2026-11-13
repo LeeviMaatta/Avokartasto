@@ -7,6 +7,7 @@ import {
   clearSavedEditFeatures,
   ensureUnsavedMeasurementId,
   findTargetMeasurementFeature,
+  getFeatureFocusLonLat,
   removeUnsavedMeasurementByGeojson,
   removeUnsavedMeasurementById,
 } from "../measurementSource";
@@ -83,5 +84,43 @@ describe("measurementSource selective cleanup", () => {
     expect(source.hasFeature(unsaved1)).toBe(false);
     expect(source.hasFeature(unsaved2)).toBe(true);
     expect(source.hasFeature(savedClone)).toBe(true);
+  });
+
+  it("extracts bounding-box center lon/lat for Point, LineString, and Polygon geometries", () => {
+    expect(
+      getFeatureFocusLonLat(JSON.stringify({ type: "Point", coordinates: [24.94, 60.17] })),
+    ).toEqual([24.94, 60.17]);
+
+    const lineCenter = getFeatureFocusLonLat(
+      JSON.stringify({
+        type: "LineString",
+        coordinates: [
+          [24.0, 60.0],
+          [26.0, 62.0],
+        ],
+      }),
+    );
+    expect(lineCenter?.[0]).toBeCloseTo(25.0, 6);
+    expect(lineCenter?.[1]).toBeCloseTo(61.0, 6);
+
+    const polyCenter = getFeatureFocusLonLat(
+      JSON.stringify({
+        type: "Polygon",
+        coordinates: [
+          [
+            [24.0, 60.0],
+            [26.0, 60.0],
+            [26.0, 62.0],
+            [24.0, 62.0],
+            [24.0, 60.0],
+          ],
+        ],
+      }),
+    );
+    expect(polyCenter?.[0]).toBeCloseTo(25.0, 6);
+    expect(polyCenter?.[1]).toBeCloseTo(61.0, 6);
+
+    expect(getFeatureFocusLonLat("")).toBeNull();
+    expect(getFeatureFocusLonLat("not-json")).toBeNull();
   });
 });

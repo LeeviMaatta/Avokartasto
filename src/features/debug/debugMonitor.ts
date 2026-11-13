@@ -1,4 +1,6 @@
 import type OlMap from "ol/Map";
+import TileLayer from "ol/layer/Tile";
+import VectorTileLayer from "ol/layer/VectorTile";
 import { toLonLat } from "ol/proj";
 import { useMapStore } from "../../store/mapStore";
 import { useDebugStore } from "./debugStore";
@@ -62,12 +64,61 @@ export function stopPerformanceMonitor() {
   fps = 0;
 }
 
+export function countTilesInView(targetMap: OlMap | null): string | number | null {
+  if (!targetMap) return null;
+  const view = targetMap.getView();
+  const size = targetMap.getSize();
+  const resolution = view.getResolution();
+  const projection = view.getProjection();
+  if (!size || size[0] <= 0 || size[1] <= 0 || resolution === undefined || !projection) {
+    return 0;
+  }
+
+  const extent = view.calculateExtent(size);
+  let baseTiles = 0;
+  let baseCols = 0;
+  let baseRows = 0;
+  let overlayTiles = 0;
+
+  for (const layer of targetMap.getLayers().getArray()) {
+    if (!layer.getVisible()) continue;
+    const layerType = layer.get("avokartasto-layer-type");
+    if (layerType !== "basemap" && layerType !== "overlay") continue;
+    if (!(layer instanceof TileLayer) && !(layer instanceof VectorTileLayer)) continue;
+    const source = layer.getSource();
+    if (!source || !("getTileGridForProjection" in source)) continue;
+    const tileGrid = source.getTileGridForProjection(projection);
+    if (!tileGrid) continue;
+    const zDirection = "zDirection" in source ? (source as { zDirection?: number }).zDirection : 0;
+    const z = tileGrid.getZForResolution(resolution, zDirection);
+    const range = tileGrid.getTileRangeForExtentAndZ(extent, z);
+    const cols = Math.max(0, range.getWidth());
+    const rows = Math.max(0, range.getHeight());
+    const count = cols * rows;
+    if (layerType === "basemap") {
+      baseTiles += count;
+      baseCols = cols;
+      baseRows = rows;
+    } else {
+      overlayTiles += count;
+    }
+  }
+
+  if (overlayTiles > 0) {
+    return `${baseTiles + overlayTiles} (${baseTiles} pohja, ${overlayTiles} päällys)`;
+  }
+  if (baseCols > 0) {
+    return `${baseTiles} (${baseCols} × ${baseRows})`;
+  }
+  return 0;
+}
+
 export function refreshDebugSnapshot() {
   const state = useMapStore.getState();
   const view = map?.getView();
   const center = view?.getCenter();
   const pointer = state.cursor;
-  const layers = map?.getLayers().getArray() ?? [];
+  const layers = (map?.getLayers().getArray() ?? []).filter((l) => l.get("avokartasto-layer-type") !== "debug");
   const baseCount = layers.filter((l) => l.get("avokartasto-layer-type") === "basemap").length;
   const overlayCount = layers.filter((l) => l.get("avokartasto-layer-type") === "overlay").length;
   const vectorCount = layers.filter((l) => !l.get("avokartasto-layer-type")).length;
@@ -87,6 +138,7 @@ export function refreshDebugSnapshot() {
     "layers.visible": `${layers.filter((layer) => layer.getVisible()).length} näkyvissä`,
     "layers.base": state.basemap || "Ei valittu",
     "layers.overlays": state.overlays.length > 0 ? `${state.overlays.length} valittuna` : "Ei valittu",
+    "tiles.inView": countTilesInView(map),
     "tiles.loaded": tileLoaded,
     "tiles.loading": tileLoading,
     "tiles.failed": tileFailed,

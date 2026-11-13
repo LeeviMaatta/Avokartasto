@@ -193,7 +193,7 @@ export default function DebugOverlay() {
   if (!settings.enabled) return null;
 
   const closeDebug = () => {
-    const updated = { ...settings, enabled: false };
+    const updated = { ...settings, enabled: false, showTileBoundaries: false };
     useDebugStore.setState({ settings: updated });
     void useMapStore.getState().setSetting("debugSettings", JSON.stringify(updated));
   };
@@ -294,7 +294,7 @@ export default function DebugOverlay() {
 
       {visibleCategories.map((category) => {
         const values = DEBUG_VALUES[category.id].filter((value) => settings.values[value.id]);
-        if (values.length === 0) return null;
+        if (values.length === 0 && category.id !== "tiles") return null;
         return (
           <section key={category.id} className={settings.compactMode ? "mb-1.5" : "mb-2.5"}>
             <h2 className="font-semibold text-blue-600 dark:text-sky-400">{category.label}</h2>
@@ -309,6 +309,20 @@ export default function DebugOverlay() {
                 </div>
               ))}
             </div>
+            {category.id === "tiles" && (
+              <label className="mt-1 flex cursor-pointer items-center justify-between gap-2 rounded bg-slate-100/70 px-1.5 py-1 text-slate-700 hover:bg-slate-200/70 dark:bg-zinc-900/70 dark:text-zinc-300 dark:hover:bg-zinc-800/80">
+                <span>Tiilien rajat kartalla</span>
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 rounded accent-blue-600"
+                  checked={Boolean(settings.showTileBoundaries)}
+                  onChange={(e) => {
+                    const updated = { ...settings, showTileBoundaries: e.target.checked };
+                    void useDebugStore.getState().updateSettings(updated);
+                  }}
+                />
+              </label>
+            )}
           </section>
         );
       })}

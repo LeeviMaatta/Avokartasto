@@ -43,6 +43,8 @@ export default function MeasureTool() {
   const profileError = useMapStore((s) => s.profileError);
   const profileVisible = useMapStore((s) => s.profileVisible);
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [folderId, setFolderId] = useState("");
   const [msg, setMsg] = useState("");
   const [markerDraft, setMarkerDraft] = useState<MarkerDraft | null>(null);
   const [markerBusy, setMarkerBusy] = useState(false);
@@ -73,8 +75,16 @@ export default function MeasureTool() {
   }, [markerFoldersSetting]);
 
   useEffect(() => {
-    if (selectedFeature?.kind === "measurement") setTitle(selectedFeature.title);
-    else if (!selectedFeature) setTitle("");
+    if (selectedFeature?.kind === "measurement") {
+      setMarkerDraft(null);
+      setTitle(selectedFeature.title);
+      setDescription(selectedFeature.description ?? "");
+      setFolderId(selectedFeature.folder_id ?? "");
+    } else if (!selectedFeature) {
+      setTitle("");
+      setDescription("");
+      setFolderId("");
+    }
   }, [selectedFeature]);
 
   useEffect(() => {
@@ -89,6 +99,41 @@ export default function MeasureTool() {
     const handleEditMarker = (event: Event) => {
       const feature = (event as CustomEvent<UserFeature>).detail;
       if (!feature) return;
+      const currentState = useMapStore.getState();
+      if (currentState.editingFeatureId !== null || currentState.activeUnsavedMeasurementId !== null) {
+        window.dispatchEvent(
+          new CustomEvent("remove-measurement-feature", {
+            detail: {
+              savedId: currentState.editingFeatureId,
+              unsavedId: currentState.activeUnsavedMeasurementId,
+            },
+          }),
+        );
+      }
+      terrainAbortRef.current?.abort();
+      terrainAbortRef.current = null;
+      lastRoutedGeojsonRef.current = null;
+      setTerrainRouting(false);
+      setTerrainStage("");
+      setTerrainOptionsOpen(false);
+      setOriginalGeojsonBeforeRoute(null);
+      setOriginalProfileBeforeRoute(null);
+      setTerrainStats(null);
+      setTitle("");
+      setDescription("");
+      setFolderId("");
+      useMapStore.setState({
+        tool: "none",
+        pendingMarker: null,
+        markerEditorOpen: true,
+        editingFeatureId: null,
+        activeUnsavedMeasurementId: null,
+        measure: null,
+        profile: null,
+        profileVisible: false,
+        profileError: null,
+        selectedFeature: null,
+      });
       setMarkerDraft({
         id: feature.id,
         title: feature.title,
@@ -137,9 +182,24 @@ export default function MeasureTool() {
       const length = kind === "area"
         ? getArea(geometry, { projection: "EPSG:3857" })
         : getLength(geometry, { projection: "EPSG:3857" });
+      terrainAbortRef.current?.abort();
+      terrainAbortRef.current = null;
+      lastRoutedGeojsonRef.current = null;
+      setTerrainRouting(false);
+      setTerrainStage("");
+      setTerrainOptionsOpen(false);
+      setOriginalGeojsonBeforeRoute(null);
+      setOriginalProfileBeforeRoute(null);
+      setTerrainStats(null);
+      setMarkerDraft(null);
       setTitle(feature.title);
+      setDescription(feature.description ?? "");
+      setFolderId(feature.folder_id ?? "");
       setMsg("");
       useMapStore.setState({
+        pendingMarker: null,
+        markerEditorOpen: false,
+        tool: "none",
         editingFeatureId: feature.id,
         activeUnsavedMeasurementId: null,
         measure: { length, geojson: feature.geojson, kind },
@@ -234,6 +294,8 @@ export default function MeasureTool() {
     setTerrainStats(null);
     setMsg("");
     setTitle("");
+    setDescription("");
+    setFolderId("");
   };
 
   const closeMeasureTool = () => {
@@ -371,19 +433,20 @@ export default function MeasureTool() {
       const resolvedTitle =
         title.trim() ||
         (await resolveNearestPlaceName(targetMeasure.geojson, "Mittaus"));
+      const resolvedDescription = description.trim() || null;
       const featureType = targetMeasure.kind === "area" ? "POLYGON" : "LINESTRING";
       if (targetSavedId !== null) {
         await updateFeature(
           targetSavedId,
           resolvedTitle,
-          selectedFeature?.description ?? null,
+          resolvedDescription,
           featureType,
           targetMeasure.geojson,
-          selectedFeature?.folder_id ?? "",
+          folderId,
           savedMeasurementColor,
         );
       } else {
-        await addFeature(resolvedTitle, null, featureType, targetMeasure.geojson, "", savedMeasurementColor);
+        await addFeature(resolvedTitle, resolvedDescription, featureType, targetMeasure.geojson, folderId, savedMeasurementColor);
       }
       bumpFeatures();
       window.dispatchEvent(
@@ -396,6 +459,8 @@ export default function MeasureTool() {
       );
       useMapStore.setState({ measure: null, profile: null, profileVisible: false, profileError: null, editingFeatureId: null, activeUnsavedMeasurementId: null, selectedFeature: null });
       setTitle("");
+      setDescription("");
+      setFolderId("");
       setMsg("Tallennettu");
     } catch (error) {
       setMsg(`Tallennus epäonnistui: ${String(error)}`);
@@ -543,6 +608,16 @@ export default function MeasureTool() {
             </span>
           )}
           <input className="w-28 sm:w-36 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" placeholder="Mittauksen nimi" aria-label="Mittauksen nimi" value={title} onChange={(event) => setTitle(event.target.value)} />
+          <input className="w-28 sm:w-40 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" placeholder="Kuvaus" aria-label="Mittauksen kuvaus" value={description} onChange={(event) => setDescription(event.target.value)} />
+          <select
+            className="max-w-36 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            aria-label="Mittauksen kansio"
+            value={folderId}
+            onChange={(event) => setFolderId(event.target.value)}
+          >
+            <option value="">Ei kansiota</option>
+            {markerFolders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+          </select>
           <button disabled={savingMeasurement} className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white shadow hover:bg-blue-700 disabled:opacity-60 transition" onClick={() => void save()}>
             <Save size={13} /> {editingFeatureId ? "Tallenna muutokset" : "Tallenna"}
           </button>
@@ -553,7 +628,7 @@ export default function MeasureTool() {
             className="flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900 transition"
             onClick={() => {
               if (!measure) return;
-              void saveMeasurementFile(measure, title)
+              void saveMeasurementFile(measure, title, description)
                 .then((res) => {
                   if (res.status === "saved") setMsg(`Viety: ${res.path}`);
                 })

@@ -142,7 +142,7 @@ export default function FeaturePanel({
                 </div>
                 {isExpanded && (
                   <div className="ml-1.5 space-y-0.5 border-l border-slate-200 pl-2 pt-0.5 dark:border-zinc-700">
-                    {folderFeatures.length === 0 ? <div className="px-2 py-1 text-[11px] italic text-slate-400 dark:text-zinc-500">Ei merkkejä tässä kansiossa.</div> : folderFeatures.map(renderFeatureRow)}
+                    {folderFeatures.length === 0 ? <div className="px-2 py-1 text-[11px] italic text-slate-400 dark:text-zinc-500">Ei merkkejä tai mittauksia tässä kansiossa.</div> : folderFeatures.map(renderFeatureRow)}
                   </div>
                 )}
               </div>

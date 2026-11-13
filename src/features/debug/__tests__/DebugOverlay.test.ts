@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
+import type OlMap from "ol/Map";
+import View from "ol/View";
+import TileLayer from "ol/layer/Tile";
+import XYZ from "ol/source/XYZ";
+import { fromLonLat } from "ol/proj";
 import { clampDebugPosition, resolveDebugPosition, toRelativeDebugPosition } from "../DebugOverlay";
+import { countTilesInView } from "../debugMonitor";
+import { DEBUG_VALUES, DEFAULT_DEBUG_SETTINGS, parseDebugSettings } from "../model/debugTypes";
 
 describe("DebugOverlay positioning", () => {
   it("clamps a legacy 2K edge-pinned position inside an FHD viewport", () => {
@@ -59,5 +66,49 @@ describe("DebugOverlay positioning", () => {
 
     const restored2k = resolveDebugPosition(narrow, box, viewport2k);
     expect(restored2k.left).toBe(2560 - 360 - 8);
+  });
+});
+
+describe("debug tile metrics and settings", () => {
+  it("includes tiles.inView and preserves showTileBoundaries in parseDebugSettings", () => {
+    expect(DEBUG_VALUES.tiles.some((v) => v.id === "tiles.inView")).toBe(true);
+    expect(DEFAULT_DEBUG_SETTINGS.showTileBoundaries).toBe(false);
+
+    const enabled = parseDebugSettings(JSON.stringify({ showTileBoundaries: true }));
+    expect(enabled.showTileBoundaries).toBe(true);
+    expect(enabled.values["tiles.inView"]).toBe(true);
+
+    const fallback = parseDebugSettings("invalid-json");
+    expect(fallback.showTileBoundaries).toBe(false);
+  });
+
+  it("counts visible tiles in view for basemap and overlay tile layers", () => {
+    expect(countTilesInView(null)).toBeNull();
+
+    const basemap = new TileLayer({
+      source: new XYZ({ url: "https://example.com/{z}/{x}/{y}.png" }),
+    });
+    basemap.set("avokartasto-layer-type", "basemap");
+
+    const overlay = new TileLayer({
+      source: new XYZ({ url: "https://example.com/overlay/{z}/{x}/{y}.png" }),
+    });
+    overlay.set("avokartasto-layer-type", "overlay");
+    overlay.setVisible(false);
+
+    const view = new View({ center: fromLonLat([24.94, 60.17]), zoom: 10 });
+    const mockMap = {
+      getView: () => view,
+      getSize: () => [1024, 768],
+      getLayers: () => ({ getArray: () => [basemap, overlay] }),
+    } as unknown as OlMap;
+
+    const basemapOnly = countTilesInView(mockMap);
+    expect(typeof basemapOnly).toBe("string");
+    expect(String(basemapOnly)).toMatch(/^\d+ \(\d+ × \d+\)$/);
+
+    overlay.setVisible(true);
+    const withOverlay = countTilesInView(mockMap);
+    expect(String(withOverlay)).toMatch(/^\d+ \(\d+ pohja, \d+ päällys\)$/);
   });
 });

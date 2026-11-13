@@ -25,6 +25,7 @@ export interface DebugSettings {
   opacity: number;
   fontSize: "small" | "medium";
   compactMode: boolean;
+  showTileBoundaries: boolean;
   categories: Record<DebugCategory, boolean>;
   values: Record<string, boolean>;
 }
@@ -71,6 +72,7 @@ export const DEBUG_VALUES: Record<DebugCategory, { id: string; label: string }[]
     { id: "layers.overlays", label: "Aktiiviset päällyskartat" },
   ],
   tiles: [
+    { id: "tiles.inView", label: "Tiiliä näkymässä" },
     { id: "tiles.loaded", label: "Ladatut tiilet" },
     { id: "tiles.loading", label: "Latautumassa olevat tiilet" },
     { id: "tiles.failed", label: "Epäonnistuneet tiilet" },
@@ -110,6 +112,7 @@ export const DEFAULT_DEBUG_SETTINGS: DebugSettings = {
   opacity: 0.85,
   fontSize: "small",
   compactMode: false,
+  showTileBoundaries: false,
   categories: {
     map: true,
     coordinates: true,
@@ -142,6 +145,7 @@ export function parseDebugSettings(raw: string | undefined): DebugSettings {
       ...DEFAULT_DEBUG_SETTINGS,
       ...parsed,
       customPosition: validCustomPos,
+      showTileBoundaries: Boolean(parsed.showTileBoundaries),
       categories: { ...DEFAULT_DEBUG_SETTINGS.categories, ...(parsed.categories ?? {}) },
       values: { ...DEFAULT_DEBUG_SETTINGS.values, ...(parsed.values ?? {}) },
     };

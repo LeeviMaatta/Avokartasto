@@ -27,6 +27,7 @@ import FolderEditor from "../../markers/components/FolderEditor";
 import { usePersistedBool, usePersistedStringSet } from "../../settings/model/persistedUiState";
 import { requiredSecrets } from "../sources/resolveUrl";
 import { focusFirstNavigable, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
+import { getFeatureFocusLonLat } from "../../measurements/domain/measurementSource";
 
 export default function LayerSwitcher() {
   const [openLayers, toggleOpenLayers] = usePersistedBool("layersPanelOpen", true);
@@ -250,6 +251,14 @@ export default function LayerSwitcher() {
   };
 
   const openEditFeature = (feature: UserFeature) => {
+    const focusCoord = getFeatureFocusLonLat(feature.geojson);
+    if (focusCoord) {
+      window.dispatchEvent(
+        new CustomEvent("map-focus", {
+          detail: { lon: focusCoord[0], lat: focusCoord[1], zoom: 13 },
+        }),
+      );
+    }
     window.dispatchEvent(new CustomEvent<UserFeature>(
       feature.feature_type === "POINT" ? "open-marker-editor" : "open-measurement-editor",
       { detail: feature },

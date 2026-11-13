@@ -80,3 +80,20 @@ export function removeUnsavedMeasurementByGeojson(source: VectorSource, geojson:
   });
   return removed;
 }
+
+/** Parses a GeoJSON geometry string (EPSG:4326) and returns its bounding-box center as `[lon, lat]`. */
+export function getFeatureFocusLonLat(geojsonStr: string): [number, number] | null {
+  if (!geojsonStr) return null;
+  try {
+    const geometry = new GeoJSON().readGeometry(JSON.parse(geojsonStr), {
+      dataProjection: "EPSG:4326",
+      featureProjection: "EPSG:4326",
+    });
+    const extent = geometry.getExtent();
+    const lon = (extent[0] + extent[2]) / 2;
+    const lat = (extent[1] + extent[3]) / 2;
+    return Number.isFinite(lon) && Number.isFinite(lat) ? [lon, lat] : null;
+  } catch {
+    return null;
+  }
+}

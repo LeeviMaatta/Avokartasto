@@ -1179,6 +1179,16 @@ export default function SettingsModal() {
                   <span>Kompakti tila (vähemmän selitetekstejä)</span>
                 </label>
 
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded accent-blue-600"
+                    checked={debugDraft.showTileBoundaries}
+                    onChange={(e) => setDebugDraft({ ...debugDraft, showTileBoundaries: e.target.checked })}
+                  />
+                  <span>Näytä tiilien rajat kartalla (graafinen ruudukko)</span>
+                </label>
+
                 {/* Subcategory accordion */}
                 <div className="rounded-lg border border-slate-200 dark:border-zinc-700">
                   <button 
