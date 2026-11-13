@@ -841,7 +841,7 @@ export default function SettingsModal() {
                   </label>
                 </div>
 
-                <div className="pt-2 border-t border-slate-200 dark:border-zinc-800">
+                <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-zinc-800">
                   <label className="flex items-center gap-2.5 cursor-pointer">
                     <input
                       type="checkbox"
@@ -850,6 +850,15 @@ export default function SettingsModal() {
                       onChange={(e) => setDraft({ ...draft, showSegmentLengths: e.target.checked ? "1" : "0" })}
                     />
                     <span>Näytä mittausviivan välipisteiden osapituudet</span>
+                  </label>
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded accent-blue-600"
+                      checked={draft.enableTerrainRouting !== "0"}
+                      onChange={(e) => setDraft({ ...draft, enableTerrainRouting: e.target.checked ? "1" : "0" })}
+                    />
+                    <span>Näytä maastoreittitoiminto etäisyysmittauksessa (kokeellinen)</span>
                   </label>
                 </div>
               </div>

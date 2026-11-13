@@ -4,6 +4,7 @@ mod features;
 mod nominatim;
 mod secrets;
 mod sources;
+mod terrain;
 mod tiles;
 
 use rusqlite::Connection;
@@ -101,7 +102,9 @@ pub fn run() {
             features::delete_feature,
             export::save_export_file,
             nominatim::nominatim_search,
-            nominatim::nominatim_reverse
+            nominatim::nominatim_reverse,
+            terrain::terrain_fetch_binary,
+            terrain::terrain_overpass_query
         ])
         .run(tauri::generate_context!())
         .expect("Tauri-sovelluksen käynnistys epäonnistui");

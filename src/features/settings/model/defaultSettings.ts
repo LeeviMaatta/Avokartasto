@@ -34,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   unsavedMeasurementColor: "#2563eb",
   measurementUnits: "metric",
   measurementType: "distance",
+  enableTerrainRouting: "1",
   tileCache: "1",
   backdropLayerId: "",
   showLayerErrors: "1",

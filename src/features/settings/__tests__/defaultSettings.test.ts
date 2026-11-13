@@ -25,5 +25,7 @@ describe("settings color and interaction defaults", () => {
     expect(SETTING_VALUE_KEYS).toContain("keyboardShortcutsEnabled");
     expect(SETTING_VALUE_KEYS).toContain("keyboardShortcuts");
     expect(SETTING_TOGGLES.map(([key]) => key)).toContain("removePendingMarkerOnDblClick");
+    expect(DEFAULT_SETTINGS.enableTerrainRouting).toBe("1");
+    expect(SETTING_TOGGLES.map(([key]) => key)).toContain("enableTerrainRouting");
   });
 });

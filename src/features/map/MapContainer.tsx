@@ -37,6 +37,7 @@ import { lineStyle, markerStyle, measurementStyle } from "./styles/featureStyles
 import {
   clearSavedEditFeatures,
   ensureUnsavedMeasurementId,
+  findTargetMeasurementFeature,
   removeUnsavedMeasurementByGeojson,
   removeUnsavedMeasurementById,
 } from "../measurements/domain/measurementSource";
@@ -163,6 +164,53 @@ export default function MapContainer() {
         console.error("Muokattavan mittauksen geometriaa ei voitu ladata kartalle", error);
       }
     };
+    const replaceMeasurementGeometry = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          savedId?: number | null;
+          unsavedId?: string | null;
+          geojson?: string;
+          profile?: Array<{ dist: number; elev: number | null }> | null;
+        }>
+      ).detail;
+      if (!detail?.geojson) return;
+      try {
+        const geometry = new GeoJSON().readGeometry(JSON.parse(detail.geojson), {
+          dataProjection: "EPSG:4326",
+          featureProjection: "EPSG:3857",
+        });
+        if (!(geometry instanceof LineString)) return;
+        const targetFeature =
+          findTargetMeasurementFeature(
+            measureSrc.current,
+            detail.savedId ?? null,
+            detail.unsavedId ?? null,
+          ) ??
+          measureSrc.current.getFeatures().find((f) => f.getGeometry() instanceof LineString) ??
+          null;
+        if (targetFeature) {
+          targetFeature.setGeometry(geometry);
+        }
+        const length = getLength(geometry, { projection: "EPSG:3857" });
+        if (detail.profile && detail.profile.length > 0) {
+          profileRequest.current += 1;
+          useMapStore.setState({
+            measure: { length, geojson: detail.geojson, kind: "distance" },
+            profile: detail.profile,
+            profileError: null,
+          });
+        } else {
+          useMapStore.setState({
+            measure: { length, geojson: detail.geojson, kind: "distance" },
+            profile: null,
+            profileError: null,
+          });
+          void loadLineProfile(geometry);
+        }
+      } catch (error) {
+        console.error("Mittausgeometrian päivitys epäonnistui", error);
+      }
+    };
     const handleSearchLocation = (event: Event) => {
       const detail = (event as CustomEvent<{ lat: number; lon: number; zoom?: number }>).detail;
       if (!detail || !Number.isFinite(detail.lat) || !Number.isFinite(detail.lon)) return;
@@ -175,6 +223,7 @@ export default function MapContainer() {
     mapElement?.addEventListener("wheel", focusMapOnWheel, { capture: true, passive: true });
     window.addEventListener("remove-measurement-feature", removeMeasurementFeature);
     window.addEventListener("open-measurement-editor", handleOpenMeasurementEditor);
+    window.addEventListener("replace-measurement-geometry", replaceMeasurementGeometry);
 
     const map = new OlMap({
       target: el.current!,
@@ -514,6 +563,7 @@ export default function MapContainer() {
       mapElement?.removeEventListener("wheel", focusMapOnWheel, { capture: true });
       window.removeEventListener("remove-measurement-feature", removeMeasurementFeature);
       window.removeEventListener("open-measurement-editor", handleOpenMeasurementEditor);
+      window.removeEventListener("replace-measurement-geometry", replaceMeasurementGeometry);
       window.removeEventListener("map-search-location", handleSearchLocation);
       window.removeEventListener("map-focus", handleSearchLocation);
       if (viewRestored.current) {

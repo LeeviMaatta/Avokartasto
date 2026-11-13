@@ -24,6 +24,7 @@ export const SETTING_TOGGLES: [string, string][] = [
   ["removePendingMarkerOnDblClick", "Poista tallentamaton merkki ja lopeta mittauksen muokkaus kaksoisklikkauksella"],
   ["kineticPanning", "Sulava kartan liukuminen (Inertia)"],
   ["showSegmentLengths", "Näytä mittausviivan osapituudet"],
+  ["enableTerrainRouting", "Näytä maastoreittitoiminto etäisyysmittauksessa (kokeellinen)"],
   ["showSunTimes", "Auringon nousu- ja laskuajat"],
   ["copyCoordsOnClick", "Kopioi koordinaatit klikkaamalla"],
   ["tileCache", "Käytä karttalaattojen välimuistia"],

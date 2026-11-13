@@ -34,6 +34,7 @@ export type SettingKey =
   | "coordFormat"
   | "measurementUnits"
   | "measurementType"
+  | "enableTerrainRouting"
   | "tileCache"
   | "backdropLayerId"
   | "showLayerErrors"
