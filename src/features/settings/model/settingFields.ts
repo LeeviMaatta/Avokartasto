@@ -56,5 +56,5 @@ export const SETTING_VALUE_KEYS = [
   "copernicusRangeStart",
   "copernicusRangeEnd",
   "copernicusRangeYear",
-  "copernicusPriority",
+  "copernicusRangeSelectedDate",
 ] as const;

@@ -68,5 +68,5 @@ export const DEFAULT_SETTINGS: Settings = {
   copernicusRangeStart: "06-01",
   copernicusRangeEnd: "08-31",
   copernicusRangeYear: String(new Date().getFullYear()),
-  copernicusPriority: "leastCC",
+  copernicusRangeSelectedDate: "",
 };

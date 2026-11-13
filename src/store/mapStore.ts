@@ -113,16 +113,27 @@ export const useMapStore = create<State>((set, get) => ({
       return byBuiltin.get(id) ?? null;
     };
     const normalized = (ids: string[]) => ids.map(normalizeId).filter((id): id is string => Boolean(id));
-    const normalizedBasemap = normalizeId(merged.basemap ?? "osm") ?? byBuiltin.get("osm") ?? "";
+    const normalizedHidden = [...new Set(normalized(hiddenLayers))];
+    const hiddenSet = new Set(normalizedHidden);
+    const basemapCandidate = normalizeId(merged.basemap ?? "osm") ?? byBuiltin.get("osm") ?? "";
+    const basemapSource = byId.get(basemapCandidate);
+    const normalizedBasemap =
+      basemapSource && basemapSource.role === "basemap" && !hiddenSet.has(basemapCandidate)
+        ? basemapCandidate
+        : (byBuiltin.get("osm") ?? basemapCandidate);
+    const normalizedOverlays = [...new Set(normalized(overlays))].filter((id) => {
+      const src = byId.get(id);
+      return Boolean(src && src.role === "overlay" && !hiddenSet.has(id));
+    });
     const normalizedBackdrop = merged.backdropLayerId ? (normalizeId(merged.backdropLayerId) ?? "") : "";
     set({
       settings: { ...merged, basemap: normalizedBasemap, backdropLayerId: normalizedBackdrop },
       sources,
       basemap: normalizedBasemap,
-      overlays: normalized(overlays),
+      overlays: normalizedOverlays,
       overlayOrder: normalized(overlayOrder),
       basemapOrder: normalized(basemapOrder),
-      hiddenLayers: normalized(hiddenLayers),
+      hiddenLayers: normalizedHidden,
     });
   },
   setSetting: async (k, v) => {

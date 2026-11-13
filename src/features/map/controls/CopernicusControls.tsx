@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Calendar, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cloud, Layers, Loader2, Satellite, Settings } from "lucide-react";
+import { Calendar, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cloud, Layers, Loader2, RotateCcw, Satellite, Settings } from "lucide-react";
 import { useMapStore } from "../../../store/mapStore";
 import { usePersistedBool } from "../../settings/model/persistedUiState";
 import {
@@ -7,25 +7,17 @@ import {
   COPERNICUS_MIN_YEAR,
   COPERNICUS_SEASON_PRESETS,
   fetchCopernicusAvailableDates,
+  fetchCopernicusAvailableDatesInRange,
   fetchCopernicusLayers,
   formatCopernicusTimeLabel,
-  isCopernicusSource,
+  formatFiDate,
+  isCopernicusActiveForSelection,
+  resolveCopernicusRangeBounds,
   todayIsoDate,
   type CopernicusAvailableDay,
   type CopernicusDateMode,
   type CopernicusLayerInfo,
-  type CopernicusPriority,
 } from "../sources/copernicusParams";
-
-const MONTHS = [
-  "01", "02", "03", "04", "05", "06",
-  "07", "08", "09", "10", "11", "12",
-];
-
-const DAYS_IN_MONTH: Record<string, number> = {
-  "01": 31, "02": 29, "03": 31, "04": 30, "05": 31, "06": 30,
-  "07": 31, "08": 31, "09": 30, "10": 31, "11": 30, "12": 31,
-};
 
 const CLOUD_PRESETS = [10, 25, 50, 100];
 const MONTH_NAMES_FI = [
@@ -48,60 +40,15 @@ function shiftYearMonth(ym: { year: number; month: number }, delta: number): { y
   return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1 };
 }
 
-function MmDdPicker({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (next: string) => void;
-}) {
-  const [mm = "06", dd = "01"] = /^\d{2}-\d{2}$/.test(value) ? value.split("-") : ["06", "01"];
-  const maxDay = DAYS_IN_MONTH[mm] ?? 31;
-  const days = Array.from({ length: maxDay }, (_, i) => String(i + 1).padStart(2, "0"));
-
-  return (
-    <label className="flex flex-col gap-0.5 text-[11px] text-slate-600 dark:text-zinc-300">
-      <span>{label}</span>
-      <div className="flex items-center gap-1">
-        <select
-          value={dd}
-          onChange={(e) => onChange(`${mm}-${e.target.value}`)}
-          className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-xs text-slate-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-          aria-label={`${label} päivä`}
-        >
-          {days.map((d) => (
-            <option key={d} value={d}>{Number(d)}.</option>
-          ))}
-        </select>
-        <select
-          value={mm}
-          onChange={(e) => {
-            const nextMonth = e.target.value;
-            const nextMax = DAYS_IN_MONTH[nextMonth] ?? 31;
-            const clampedDay = String(Math.min(Number(dd), nextMax)).padStart(2, "0");
-            onChange(`${nextMonth}-${clampedDay}`);
-          }}
-          className="rounded-md border border-slate-300 bg-white px-1.5 py-1 text-xs text-slate-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-          aria-label={`${label} kuukausi`}
-        >
-          {MONTHS.map((m) => (
-            <option key={m} value={m}>{Number(m)}.</option>
-          ))}
-        </select>
-      </div>
-    </label>
-  );
-}
-
 export default function CopernicusControls() {
   const basemap = useMapStore((s) => s.basemap);
   const overlays = useMapStore((s) => s.overlays);
+  const hiddenLayers = useMapStore((s) => s.hiddenLayers);
   const sources = useMapStore((s) => s.sources);
   const settings = useMapStore((s) => s.settings);
   const centerCoord = useMapStore((s) => s.centerCoord);
   const setSetting = useMapStore((s) => s.setSetting);
+  const setSettings = useMapStore((s) => s.setSettings);
   const [open, toggleOpen] = usePersistedBool("copernicusControlsOpen", true);
   const [layerPickerOpen, toggleLayerPickerOpen] = usePersistedBool("copernicusLayerPickerOpen", true);
   const [instanceLayers, setInstanceLayers] = useState<CopernicusLayerInfo[]>([]);
@@ -117,13 +64,11 @@ export default function CopernicusControls() {
   const instanceId = settings.copernicusInstanceId?.trim() ?? "";
   const maxCloud = Number.isFinite(Number(settings.copernicusMaxCloud)) ? Number(settings.copernicusMaxCloud) : 20;
   const dateMode = (settings.copernicusDateMode as CopernicusDateMode) || "latest";
-  const activeIds = new Set([basemap, ...overlays]);
-  const copernicusActive = sources.some(
-    (src) => (activeIds.has(src.builtin_key ?? "") || activeIds.has(`src:${src.id}`)) && isCopernicusSource(src),
-  );
+  const copernicusActive = isCopernicusActiveForSelection(sources, basemap, overlays, hiddenLayers);
+  const { startIso: rangeStartIso, endIso: rangeEndIso } = resolveCopernicusRangeBounds(settings);
 
   useEffect(() => {
-    if (!copernicusActive || dateMode !== "single" || !instanceId) {
+    if (!copernicusActive || !instanceId || (dateMode !== "single" && dateMode !== "range")) {
       setAvailableDays([]);
       setDatesError(null);
       return;
@@ -132,7 +77,10 @@ export default function CopernicusControls() {
     const [lon, lat] = centerCoord ?? [24.94, 60.17];
     setDatesLoading(true);
     setDatesError(null);
-    void fetchCopernicusAvailableDates(instanceId, lon, lat, maxCloud, calendarMonth.year, calendarMonth.month)
+    const request = dateMode === "single"
+      ? fetchCopernicusAvailableDates(instanceId, lon, lat, maxCloud, calendarMonth.year, calendarMonth.month)
+      : fetchCopernicusAvailableDatesInRange(instanceId, lon, lat, maxCloud, rangeStartIso, rangeEndIso);
+    void request
       .then((days) => {
         if (!cancelled) setAvailableDays(days);
       })
@@ -145,7 +93,18 @@ export default function CopernicusControls() {
     return () => {
       cancelled = true;
     };
-  }, [copernicusActive, dateMode, instanceId, centerCoord?.[0], centerCoord?.[1], maxCloud, calendarMonth.year, calendarMonth.month]);
+  }, [
+    copernicusActive,
+    dateMode,
+    instanceId,
+    centerCoord?.[0],
+    centerCoord?.[1],
+    maxCloud,
+    calendarMonth.year,
+    calendarMonth.month,
+    rangeStartIso,
+    rangeEndIso,
+  ]);
 
   const availableMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -197,8 +156,6 @@ export default function CopernicusControls() {
   const rangeYear = Number.isInteger(parsedYear)
     ? Math.max(COPERNICUS_MIN_YEAR, Math.min(currentYear, parsedYear))
     : currentYear;
-  const priority: CopernicusPriority =
-    settings.copernicusPriority === "mostRecent" ? "mostRecent" : "leastCC";
   const layerName = settings.copernicusLayerName || "TRUE-COLOR";
   const activeTimeLabel = formatCopernicusTimeLabel(settings);
   const years = Array.from({ length: currentYear - COPERNICUS_MIN_YEAR + 1 }, (_, i) => currentYear - i);
@@ -282,7 +239,7 @@ export default function CopernicusControls() {
               {([
                 ["latest", "Uusin"],
                 ["single", "Päivämäärä"],
-                ["range", "Haarukka & Vuosi"],
+                ["range", "Haarukka"],
               ] as [CopernicusDateMode, string][]).map(([mode, label]) => (
                 <button
                   key={mode}
@@ -466,109 +423,252 @@ export default function CopernicusControls() {
               );
             })()}
 
-            {dateMode === "range" && (
-              <div className="space-y-2">
-                {/* Vuoden valinta haarukalta */}
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-medium text-slate-600 dark:text-zinc-300">Vuosi haarukalla</span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      disabled={rangeYear <= COPERNICUS_MIN_YEAR}
-                      onClick={() => void setSetting("copernicusRangeYear", String(rangeYear - 1))}
-                      className="rounded-md border border-slate-300 p-1 hover:bg-slate-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                      title="Edellinen vuosi"
-                      aria-label="Edellinen vuosi"
-                    >
-                      <ChevronLeft size={13} />
-                    </button>
-                    <select
-                      value={rangeYear}
-                      onChange={(e) => void setSetting("copernicusRangeYear", e.target.value)}
-                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                      aria-label="Valitse vuosi"
-                    >
-                      {years.map((y) => (
-                        <option key={y} value={y}>{y}</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      disabled={rangeYear >= currentYear}
-                      onClick={() => void setSetting("copernicusRangeYear", String(rangeYear + 1))}
-                      className="rounded-md border border-slate-300 p-1 hover:bg-slate-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                      title="Seuraava vuosi"
-                      aria-label="Seuraava vuosi"
-                    >
-                      <ChevronRight size={13} />
-                    </button>
-                  </div>
-                </div>
+            {dateMode === "range" && (() => {
+              const rawSelectedRange = settings.copernicusRangeSelectedDate ?? "";
+              const selectedRangeDate =
+                /^\d{4}-\d{2}-\d{2}$/.test(rawSelectedRange) &&
+                rawSelectedRange >= rangeStartIso &&
+                rawSelectedRange <= rangeEndIso
+                  ? rawSelectedRange
+                  : "";
+              const selectedIndex = selectedRangeDate
+                ? availableDays.findIndex((d) => d.date === selectedRangeDate)
+                : -1;
+              const selectedRangeCloud = selectedRangeDate ? availableMap.get(selectedRangeDate) : undefined;
+              const prevRangeDay = selectedRangeDate
+                ? [...availableDays].reverse().find((d) => d.date < selectedRangeDate)
+                : availableDays[availableDays.length - 1];
+              const nextRangeDay = selectedRangeDate
+                ? availableDays.find((d) => d.date > selectedRangeDate)
+                : availableDays[0];
 
-                {/* Haarukan alku ja loppu */}
-                <div className="flex items-end justify-between gap-2">
-                  <MmDdPicker
-                    label="Haarukan alku"
-                    value={rangeStart}
-                    onChange={(val) => void setSetting("copernicusRangeStart", val)}
-                  />
-                  <span className="pb-1.5 text-slate-400">–</span>
-                  <MmDdPicker
-                    label="Haarukan loppu"
-                    value={rangeEnd}
-                    onChange={(val) => void setSetting("copernicusRangeEnd", val)}
-                  />
-                </div>
+              const updateRangeSettings = (patch: Record<string, string>) => {
+                void setSettings({
+                  ...settings,
+                  ...patch,
+                  copernicusRangeSelectedDate: "",
+                });
+              };
 
-                {/* Vuodenaikapikavalinnat */}
-                <div className="flex flex-wrap gap-1">
-                  {COPERNICUS_SEASON_PRESETS.map((preset) => {
-                    const active = rangeStart === preset.start && rangeEnd === preset.end;
-                    return (
+              const stepRangeDay = (direction: -1 | 1) => {
+                const candidate = direction === -1 ? prevRangeDay : nextRangeDay;
+                if (candidate) {
+                  void setSetting("copernicusRangeSelectedDate", candidate.date);
+                }
+              };
+
+              return (
+                <div className="space-y-2.5">
+                  {/* Vuosi ja pikavalinnat */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-medium text-slate-600 dark:text-zinc-300">Vuosi & jakso</span>
+                    <div className="flex items-center gap-1">
                       <button
-                        key={preset.id}
                         type="button"
-                        onClick={() => {
-                          void setSetting("copernicusRangeStart", preset.start);
-                          void setSetting("copernicusRangeEnd", preset.end);
+                        disabled={rangeYear <= COPERNICUS_MIN_YEAR}
+                        onClick={() => updateRangeSettings({ copernicusRangeYear: String(rangeYear - 1) })}
+                        className="rounded-md border border-slate-300 p-1 hover:bg-slate-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                        title="Edellinen vuosi"
+                        aria-label="Edellinen vuosi"
+                      >
+                        <ChevronLeft size={13} />
+                      </button>
+                      <select
+                        value={rangeYear}
+                        onChange={(e) => updateRangeSettings({ copernicusRangeYear: e.target.value })}
+                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        aria-label="Valitse vuosi"
+                      >
+                        {years.map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={rangeYear >= currentYear}
+                        onClick={() => updateRangeSettings({ copernicusRangeYear: String(rangeYear + 1) })}
+                        className="rounded-md border border-slate-300 p-1 hover:bg-slate-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                        title="Seuraava vuosi"
+                        aria-label="Seuraava vuosi"
+                      >
+                        <ChevronRight size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Vuodenaikapikavalinnat */}
+                  <div className="flex flex-wrap gap-1">
+                    {COPERNICUS_SEASON_PRESETS.map((preset) => {
+                      const active = rangeStart === preset.start && rangeEnd === preset.end;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() =>
+                            updateRangeSettings({
+                              copernicusRangeStart: preset.start,
+                              copernicusRangeEnd: preset.end,
+                            })
+                          }
+                          className={`rounded-md px-2 py-1 text-[11px] font-medium transition ${
+                            active
+                              ? "bg-blue-600 text-white"
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Haarukan alku ja loppu */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex flex-col gap-0.5 text-[11px] text-slate-600 dark:text-zinc-300">
+                      <span>Alkupäivä</span>
+                      <input
+                        type="date"
+                        min={`${COPERNICUS_MIN_YEAR}-01-01`}
+                        max={todayIsoDate()}
+                        value={rangeStartIso}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) return;
+                          const nextYear = Math.max(COPERNICUS_MIN_YEAR, Math.min(currentYear, Number(next.slice(0, 4))));
+                          updateRangeSettings({
+                            copernicusRangeYear: String(nextYear),
+                            copernicusRangeStart: next.slice(5, 10),
+                          });
                         }}
-                        className={`rounded-md px-2 py-1 text-[11px] font-medium transition ${
-                          active
-                            ? "bg-blue-600 text-white"
-                            : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                        }`}
-                      >
-                        {preset.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        aria-label="Haarukan alkupäivä"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-0.5 text-[11px] text-slate-600 dark:text-zinc-300">
+                      <span>Loppupäivä</span>
+                      <input
+                        type="date"
+                        min={`${COPERNICUS_MIN_YEAR}-01-01`}
+                        max={`${currentYear + 1}-12-31`}
+                        value={rangeEndIso}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) return;
+                          const nextMmDd = next.slice(5, 10);
+                          if (next < rangeStartIso) {
+                            const nextYear = Math.max(COPERNICUS_MIN_YEAR, Math.min(currentYear, Number(next.slice(0, 4))));
+                            updateRangeSettings({
+                              copernicusRangeYear: String(nextYear),
+                              copernicusRangeStart: nextMmDd,
+                              copernicusRangeEnd: nextMmDd,
+                            });
+                            return;
+                          }
+                          updateRangeSettings({ copernicusRangeEnd: nextMmDd });
+                        }}
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        aria-label="Haarukan loppupäivä"
+                      />
+                    </label>
+                  </div>
 
-                {/* Prioriteetti */}
-                <div className="flex items-center justify-between gap-2 pt-0.5">
-                  <span className="text-[11px] text-slate-500 dark:text-zinc-400">Kuvien prioriteetti</span>
-                  <div className="flex gap-1">
-                    {([
-                      ["leastCC", "Vähiten pilviä"],
-                      ["mostRecent", "Uusin"],
-                    ] as [CopernicusPriority, string][]).map(([p, label]) => (
+                  {/* Selaa sopivia kuvapäiviä haarukan sisällä */}
+                  <div
+                    className="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900/60"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+                      if (e.key === "ArrowLeft") {
+                        e.preventDefault();
+                        stepRangeDay(-1);
+                      } else if (e.key === "ArrowRight") {
+                        e.preventDefault();
+                        stepRangeDay(1);
+                      }
+                    }}
+                  >
+                    <div className="flex items-center gap-1.5">
                       <button
-                        key={p}
                         type="button"
-                        onClick={() => void setSetting("copernicusPriority", p)}
-                        className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition ${
-                          priority === p
-                            ? "bg-blue-600 text-white"
-                            : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                        }`}
+                        onClick={() => stepRangeDay(-1)}
+                        disabled={!hasInstanceId || datesLoading || !prevRangeDay}
+                        className="rounded-md border border-slate-300 bg-white p-1.5 hover:bg-slate-100 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                        title={prevRangeDay ? `Edellinen sopiva päivä (${formatFiDate(prevRangeDay.date)})` : "Ei aiempaa sopivaa päivää haarukassa"}
+                        aria-label="Edellinen suodatettu päivä haarukassa"
                       >
-                        {label}
+                        <ChevronLeft size={14} />
                       </button>
-                    ))}
+
+                      <div className="flex flex-1 items-center justify-between gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900">
+                        {selectedRangeDate ? (
+                          <>
+                            <span className="flex items-center gap-1.5 font-medium">
+                              <Calendar size={13} className="text-blue-600 dark:text-blue-400" />
+                              <span>{formatFiDate(selectedRangeDate)}</span>
+                              {selectedIndex >= 0 && (
+                                <span className="text-[10px] text-slate-400 dark:text-zinc-500">
+                                  ({selectedIndex + 1}/{availableDays.length})
+                                </span>
+                              )}
+                            </span>
+                            {selectedRangeCloud !== undefined && (
+                              <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300">
+                                {Math.round(selectedRangeCloud)} %
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="flex w-full items-center justify-between text-[11px] font-medium text-slate-700 dark:text-zinc-200">
+                            <span>Koko haarukka</span>
+                            <span className="text-slate-500 dark:text-zinc-400">
+                              {formatFiDate(rangeStartIso)} – {formatFiDate(rangeEndIso)}
+                            </span>
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => stepRangeDay(1)}
+                        disabled={!hasInstanceId || datesLoading || !nextRangeDay}
+                        className="rounded-md border border-slate-300 bg-white p-1.5 hover:bg-slate-100 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                        title={nextRangeDay ? `Seuraava sopiva päivä (${formatFiDate(nextRangeDay.date)})` : "Ei uudempaa sopivaa päivää haarukassa"}
+                        aria-label="Seuraava suodatettu päivä haarukassa"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-slate-500 dark:text-zinc-400">
+                      {!hasInstanceId ? (
+                        <span>Lisää Instance ID nähdäksesi kuvapäivät.</span>
+                      ) : datesLoading ? (
+                        <span className="flex items-center gap-1">
+                          <Loader2 size={11} className="animate-spin" /> Haetaan sopivia päiviä...
+                        </span>
+                      ) : datesError ? (
+                        <span className="text-amber-600 dark:text-amber-400">{datesError}</span>
+                      ) : (
+                        <span>
+                          <span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-500 align-middle" />
+                          {availableDays.length} sopivaa päivää (≤ {maxCloud} %)
+                        </span>
+                      )}
+                      {selectedRangeDate && (
+                        <button
+                          type="button"
+                          onClick={() => void setSetting("copernicusRangeSelectedDate", "")}
+                          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/50"
+                          title="Palaa koko haarukan parhaaseen kuvaan"
+                        >
+                          <RotateCcw size={10} /> Koko haarukka
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
 
           {/* Kuvatyyppi / WMS-kerros */}

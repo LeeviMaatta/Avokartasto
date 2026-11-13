@@ -60,7 +60,6 @@ export default function LayerSwitcher() {
   const [editDraft, setEditDraft] = useState<LocalSource | null>(null);
   const [editLayer, setEditLayer] = useState<{ id: string; name: string; overlay: boolean } | null>(null);
   const [selectedBasemap, setSelectedBasemap] = useState(basemap);
-  const [apiDraft, setApiDraft] = useState<Record<string, string>>({});
   const [viewDraft, setViewDraft] = useState<LayerViewDraft>({ zoomOffset: 0, magnification: 1 });
   const [addOpen, setAddOpen] = useState(false);
   const [folderMenuOpen, setFolderMenuOpen] = useState(false);
@@ -470,13 +469,6 @@ export default function LayerSwitcher() {
     if (!menu) return;
     const source = menu.source;
     setMenu(null);
-    setApiDraft({
-      mmlKey: settings.mmlKey ?? "",
-      lantmaterietUsername: settings.lantmaterietUsername ?? "",
-      lantmaterietPassword: settings.lantmaterietPassword ?? "",
-      owmKey: settings.owmKey ?? "",
-      copernicusInstanceId: settings.copernicusInstanceId ?? "",
-    });
     let savedView: LayerViewDraft = {
       zoomOffset: source ? Math.max(-8, Math.min(8, source.view_zoom_offset || 0)) : 0,
       magnification: source?.view_magnification === 2 || source?.view_magnification === 4 ? source.view_magnification : 1,
@@ -512,7 +504,6 @@ export default function LayerSwitcher() {
     all[id] = viewDraft;
     await useMapStore.getState().setSettings({
       ...settings,
-      ...apiDraft,
       layerViewSettings: JSON.stringify(all),
     });
   };
@@ -548,6 +539,8 @@ export default function LayerSwitcher() {
     if (basemap === `src:${editDraft.id}` && editDraft.role === "overlay") {
       const fallback = sources.find((source) => source.builtin_key === "osm");
       if (fallback) setBasemap(`src:${fallback.id}`);
+    } else if (editDraft.role === "basemap" && overlays.includes(`src:${editDraft.id}`)) {
+      toggleOverlay(`src:${editDraft.id}`);
     }
     setEditDraft(null);
   };
@@ -901,11 +894,9 @@ export default function LayerSwitcher() {
         editLayer={editLayer}
         selectedBasemap={selectedBasemap}
         viewDraft={viewDraft}
-        apiDraft={apiDraft}
         onSelectedBasemapChange={setSelectedBasemap}
         onEditDraftChange={setEditDraft}
         onViewDraftChange={setViewDraft}
-        onApiDraftChange={setApiDraft}
         onClose={() => { setEditDraft(null); setEditLayer(null); }}
         onSaveSource={() => void saveSource()}
         onSaveLayer={() => void saveLayerEdit()}

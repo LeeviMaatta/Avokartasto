@@ -147,7 +147,7 @@ export function useMapLayers({ mapRef, overlayRefs, basemap, overlays, overlayOr
     settings.copernicusRangeStart,
     settings.copernicusRangeEnd,
     settings.copernicusRangeYear,
-    settings.copernicusPriority,
+    settings.copernicusRangeSelectedDate,
   ]);
 
   useEffect(() => {
@@ -290,6 +290,7 @@ export function useMapLayers({ mapRef, overlayRefs, basemap, overlays, overlayOr
     sortedIds.forEach((id, index) => {
       const numericId = sourceId(id);
       const src = numericId !== null ? sources.find((item) => item.id === numericId) : undefined;
+      if (src && src.role !== "overlay") return;
       const sig = sourceSignature(src, layerSettingsKey);
       const existing = existingLayers.get(id);
       if (existing && sig && existing.get(APP_LAYER_SIGNATURE) === sig) {

@@ -7,11 +7,9 @@ interface LayerEditorModalProps {
   editLayer: { id: string; name: string; overlay: boolean } | null;
   selectedBasemap: string;
   viewDraft: LayerViewDraft;
-  apiDraft: Record<string, string>;
   onSelectedBasemapChange: (value: string) => void;
   onEditDraftChange: (value: LocalSource) => void;
   onViewDraftChange: (value: LayerViewDraft) => void;
-  onApiDraftChange: (value: Record<string, string>) => void;
   onClose: () => void;
   onSaveSource: () => void;
   onSaveLayer: () => void;
@@ -22,11 +20,9 @@ export default function LayerEditorModal({
   editLayer,
   selectedBasemap,
   viewDraft,
-  apiDraft,
   onSelectedBasemapChange,
   onEditDraftChange,
   onViewDraftChange,
-  onApiDraftChange,
   onClose,
   onSaveSource,
   onSaveLayer,
@@ -123,20 +119,6 @@ export default function LayerEditorModal({
               <label>Suurennus<select className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={viewDraft.magnification} onChange={(e) => onViewDraftChange({ ...viewDraft, magnification: Number(e.target.value) })}><option value={1}>1x</option><option value={2}>2x</option><option value={4}>4x</option></select></label>
             </div>
             <div className="mt-1 text-[11px] text-slate-500 dark:text-zinc-400">Positiivinen offset siirtää aineiston alemmalta zoomilta ylemmälle karttazoomille.</div>
-          </div>
-          <div className="border-t border-slate-200 pt-3 dark:border-zinc-800">
-            <div className="mb-2 font-semibold text-[#164b73] dark:text-sky-400">Rajapinta-asetukset</div>
-            {[
-              ["mmlKey", "Maanmittauslaitoksen API-avain"],
-              ["lantmaterietUsername", "Lantmäteriet käyttäjätunnus"],
-              ["lantmaterietPassword", "Lantmäteriet salasana"],
-              ["owmKey", "OpenWeatherMap API-avain"],
-              ["copernicusInstanceId", "Copernicus Instance ID"],
-            ].map(([key, label]) => (
-              <label key={key} className="mb-2 block text-xs">{label}
-                <input type={key.toLowerCase().includes("password") || key.toLowerCase().includes("key") ? "password" : "text"} className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={apiDraft[key] ?? ""} onChange={(e) => onApiDraftChange({ ...apiDraft, [key]: e.target.value })} />
-              </label>
-            ))}
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">

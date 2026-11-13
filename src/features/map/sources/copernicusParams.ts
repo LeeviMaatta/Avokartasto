@@ -2,7 +2,6 @@ import type { MapSource } from "./model/sourceTypes";
 import { fetchWithDebug } from "../../debug/debugFetch";
 
 export type CopernicusDateMode = "latest" | "single" | "range";
-export type CopernicusPriority = "leastCC" | "mostRecent";
 
 export const COPERNICUS_MIN_YEAR = 2016;
 
@@ -27,6 +26,28 @@ export function isCopernicusSource(source?: Pick<MapSource, "builtin_key" | "url
     source.builtin_key === "copernicus-s2" ||
     (source.url && source.url.includes("sh.dataspace.copernicus.eu")),
   );
+}
+
+/** Tarkistaa onko jokin Copernicus-taso aktiivisena ja näkyvissä roolinsa mukaisesti. */
+export function isCopernicusActiveForSelection(
+  sources: Pick<MapSource, "id" | "role" | "builtin_key" | "url">[],
+  basemap: string,
+  overlays: string[],
+  hiddenLayers: string[] = [],
+): boolean {
+  const hiddenSet = new Set(hiddenLayers.filter(Boolean));
+  const matchesId = (src: Pick<MapSource, "id" | "builtin_key">, id: string) =>
+    Boolean(id) && (id === `src:${src.id}` || (Boolean(src.builtin_key) && id === src.builtin_key));
+
+  return sources.some((src) => {
+    if (!isCopernicusSource(src)) return false;
+    if (hiddenSet.has(`src:${src.id}`) || (src.builtin_key && hiddenSet.has(src.builtin_key))) {
+      return false;
+    }
+    return src.role === "basemap"
+      ? matchesId(src, basemap)
+      : overlays.some((id) => matchesId(src, id));
+  });
 }
 
 export function todayIsoDate(): string {
@@ -56,39 +77,38 @@ export type CopernicusAvailableDay = { date: string; cloudCover: number };
 const capabilitiesCache = new Map<string, CopernicusLayerInfo[]>();
 const availableDatesCache = new Map<string, CopernicusAvailableDay[]>();
 
-/** Hakee Sentinel-2 L2A -kuvauspäivät, jotka läpäisevät pilvisyyssuodattimen valitun kuukauden ympäriltä. */
-export async function fetchCopernicusAvailableDates(
+/** Yhteinen WFS-hakufunktio halutulle päivämäärävälille ja pilvisyysrajalle. */
+async function fetchCopernicusAvailableDatesSpan(
   instanceId: string,
   lon: number,
   lat: number,
   maxCloud: number,
-  year: number,
-  month: number,
+  startIso: string,
+  endIso: string,
+  cacheTag: string,
 ): Promise<CopernicusAvailableDay[]> {
   const id = instanceId.trim();
   if (!id) return [];
+  const today = todayIsoDate();
+  const effectiveEnd = endIso > today ? today : endIso;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startIso) || !/^\d{4}-\d{2}-\d{2}$/.test(effectiveEnd) || startIso > effectiveEnd) {
+    return [];
+  }
+
   const qLon = lon.toFixed(1);
   const qLat = lat.toFixed(1);
   const clampedCloud = Math.max(0, Math.min(100, Math.round(maxCloud)));
-  const cacheKey = `${id}:${qLon},${qLat}:${clampedCloud}:${year}-${String(month).padStart(2, "0")}`;
+  const cacheKey = `${id}:${qLon},${qLat}:${clampedCloud}:${cacheTag}`;
   const cached = availableDatesCache.get(cacheKey);
   if (cached) return cached;
 
-  const startD = new Date(Date.UTC(year, month - 3, 1));
-  const endD = new Date(Date.UTC(year, month + 1, 0));
-  const today = new Date(`${todayIsoDate()}T23:59:59Z`);
-  const effectiveEnd = endD > today ? today : endD;
-  if (startD > effectiveEnd) return [];
-
-  const startIso = startD.toISOString().slice(0, 10);
-  const endIso = effectiveEnd.toISOString().slice(0, 10);
   const box = `${(lon - 0.05).toFixed(4)},${(lat - 0.05).toFixed(4)},${(lon + 0.05).toFixed(4)},${(lat + 0.05).toFixed(4)}`;
   const url =
     `https://sh.dataspace.copernicus.eu/ogc/wfs/${encodeURIComponent(id)}` +
     `?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=DSS2` +
     `&OUTPUTFORMAT=application/json&SRSNAME=CRS:84` +
     `&BBOX=${encodeURIComponent(box)}` +
-    `&TIME=${startIso}/${endIso}` +
+    `&TIME=${startIso}/${effectiveEnd}` +
     `&MAXCC=${clampedCloud}&MAXFEATURES=100`;
 
   const res = await fetchWithDebug(url, undefined, "copernicus wfs");
@@ -115,10 +135,74 @@ export async function fetchCopernicusAvailableDates(
   return result;
 }
 
-function formatFiDate(iso: string): string {
+/** Hakee Sentinel-2 L2A -kuvauspäivät, jotka läpäisevät pilvisyyssuodattimen valitun kuukauden ympäriltä. */
+export async function fetchCopernicusAvailableDates(
+  instanceId: string,
+  lon: number,
+  lat: number,
+  maxCloud: number,
+  year: number,
+  month: number,
+): Promise<CopernicusAvailableDay[]> {
+  const startD = new Date(Date.UTC(year, month - 3, 1));
+  const endD = new Date(Date.UTC(year, month + 1, 0));
+  return fetchCopernicusAvailableDatesSpan(
+    instanceId,
+    lon,
+    lat,
+    maxCloud,
+    startD.toISOString().slice(0, 10),
+    endD.toISOString().slice(0, 10),
+    `${year}-${String(month).padStart(2, "0")}`,
+  );
+}
+
+/** Hakee pilvisyysrajan täyttävät Sentinel-2 L2A -kuvauspäivät haarukan aikaväliltä. */
+export async function fetchCopernicusAvailableDatesInRange(
+  instanceId: string,
+  lon: number,
+  lat: number,
+  maxCloud: number,
+  startIso: string,
+  endIso: string,
+): Promise<CopernicusAvailableDay[]> {
+  return fetchCopernicusAvailableDatesSpan(
+    instanceId,
+    lon,
+    lat,
+    maxCloud,
+    startIso,
+    endIso,
+    `range:${startIso}..${endIso}`,
+  );
+}
+
+export function formatFiDate(iso: string): string {
   const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
   if (!y || !m || !d) return iso;
   return `${d}.${m}.${y}`;
+}
+
+/** Palauttaa haarukan alku- ja loppupäivän ISO-muodossa huomioiden vuodenvaihteen ja karkauspäivän. */
+export function resolveCopernicusRangeBounds(settings: Record<string, string>): { startIso: string; endIso: string } {
+  const currentYear = new Date().getFullYear();
+  const parsedYear = Number(settings.copernicusRangeYear);
+  const year = Number.isInteger(parsedYear)
+    ? Math.max(COPERNICUS_MIN_YEAR, Math.min(currentYear, parsedYear))
+    : currentYear;
+  const startMmDd = normalizeMmDd(settings.copernicusRangeStart, "06-01");
+  const endMmDd = normalizeMmDd(settings.copernicusRangeEnd, "08-31");
+  const endYear = startMmDd > endMmDd ? year + 1 : year;
+  return {
+    startIso: `${year}-${clampLeapDay(year, startMmDd)}`,
+    endIso: `${endYear}-${clampLeapDay(endYear, endMmDd)}`,
+  };
+}
+
+function getSelectedRangeDate(settings: Record<string, string>, startIso: string, endIso: string): string | null {
+  const candidate = settings.copernicusRangeSelectedDate ?? "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return null;
+  return candidate >= startIso && candidate <= endIso ? candidate : null;
 }
 
 /** Muotoilee aktiivisen Copernicus-aikavälin luettavaan suomalaiseen muotoon. */
@@ -130,9 +214,11 @@ export function formatCopernicusTimeLabel(settings: Record<string, string>): str
       : todayIsoDate();
     return formatFiDate(single);
   }
-  const [rawStart, rawEnd] = resolveCopernicusTimeRange(settings).split("/");
   if (mode === "latest") return "Uusin (60 pv)";
-  return `${formatFiDate(rawStart)} – ${formatFiDate(rawEnd)}`;
+  const { startIso, endIso } = resolveCopernicusRangeBounds(settings);
+  const selectedInRange = getSelectedRangeDate(settings, startIso, endIso);
+  if (selectedInRange) return formatFiDate(selectedInRange);
+  return `${formatFiDate(startIso)} – ${formatFiDate(endIso)}`;
 }
 
 /** Hakee käyttäjän Copernicus-instanssin saatavilla olevat WMS-kerrokset GetCapabilities-kutsulla. */
@@ -168,15 +254,12 @@ export function resolveCopernicusTimeRange(settings: Record<string, string>): st
     return `${single}T00:00:00Z/${single}T23:59:59Z`;
   }
   if (mode === "range") {
-    const currentYear = new Date().getFullYear();
-    const parsedYear = Number(settings.copernicusRangeYear);
-    const year = Number.isInteger(parsedYear)
-      ? Math.max(COPERNICUS_MIN_YEAR, Math.min(currentYear, parsedYear))
-      : currentYear;
-    const startMmDd = normalizeMmDd(settings.copernicusRangeStart, "06-01");
-    const endMmDd = normalizeMmDd(settings.copernicusRangeEnd, "08-31");
-    const endYear = startMmDd > endMmDd ? year + 1 : year;
-    return `${year}-${clampLeapDay(year, startMmDd)}/${endYear}-${clampLeapDay(endYear, endMmDd)}`;
+    const { startIso, endIso } = resolveCopernicusRangeBounds(settings);
+    const selectedInRange = getSelectedRangeDate(settings, startIso, endIso);
+    if (selectedInRange) {
+      return `${selectedInRange}T00:00:00Z/${selectedInRange}T23:59:59Z`;
+    }
+    return `${startIso}/${endIso}`;
   }
   const end = todayIsoDate();
   const start = addDaysIso(end, -60);
@@ -187,18 +270,11 @@ export function buildCopernicusWmsParams(settings: Record<string, string>): Reco
   const rawCloud = Number(settings.copernicusMaxCloud ?? "20");
   const maxcc = Number.isFinite(rawCloud) ? Math.max(0, Math.min(100, Math.round(rawCloud))) : 20;
   const layers = (settings.copernicusLayerName || "TRUE-COLOR").trim() || "TRUE-COLOR";
-  const mode = (settings.copernicusDateMode as CopernicusDateMode) || "latest";
-  const priority: CopernicusPriority =
-    settings.copernicusPriority === "mostRecent" || settings.copernicusPriority === "leastCC"
-      ? settings.copernicusPriority
-      : mode === "range"
-        ? "leastCC"
-        : "mostRecent";
 
   return {
     LAYERS: layers,
     MAXCC: maxcc,
     TIME: resolveCopernicusTimeRange(settings),
-    PRIORITY: priority,
+    PRIORITY: "leastCC",
   };
 }
