@@ -113,7 +113,7 @@ export async function fetchWeather(lat: number, lon: number, key: string, signal
 // Monen päivän ennuste
 // ---------------------------------------------------------------------------
 
-export const FORECAST_DAYS = 7;
+export const FORECAST_DAYS = 5;
 
 export interface ForecastHour {
   time: number;

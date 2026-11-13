@@ -1,7 +1,8 @@
 import { ArrowUp, Cloud, Droplets, Eye, Gauge, Wind, X } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { fetchForecast, type DetailedWeather, type WeatherForecast } from "../weatherService";
 import WeatherForecastView from "./WeatherForecastView";
+import { focusFirstNavigable, focusMapViewport, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 
 interface WeatherModalProps {
   open: boolean;
@@ -16,6 +17,12 @@ export default function WeatherModal({ open, weather, apiKey, latitude, longitud
   const [forecast, setForecast] = useState<WeatherForecast | null>(null);
   const [forecastError, setForecastError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  const handleClose = () => {
+    onClose();
+    requestAnimationFrame(() => focusMapViewport());
+  };
 
   // Pyöristys (0.1° / ~11 km) estää turhat haut ja käyttää samaa välimuistia InfoBoxin kanssa.
   const latKey = latitude.toFixed(1);
@@ -41,8 +48,9 @@ export default function WeatherModal({ open, weather, apiKey, latitude, longitud
 
   useEffect(() => {
     if (!open) return;
+    requestAnimationFrame(() => focusFirstNavigable(dialogRef.current));
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") handleClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -51,13 +59,15 @@ export default function WeatherModal({ open, weather, apiKey, latitude, longitud
   if (!open) return null;
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40" onClick={handleClose}>
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Säätiedot"
         className="flex max-h-[90vh] w-[calc(100vw-1rem)] max-w-[720px] flex-col overflow-hidden rounded-xl bg-white text-gray-800 shadow-2xl dark:bg-gray-800 dark:text-white"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => handleContainerArrowKeyDown(e, { onEscape: handleClose })}
       >
         <div className="overflow-y-auto">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800 sm:px-5">
@@ -67,7 +77,7 @@ export default function WeatherModal({ open, weather, apiKey, latitude, longitud
               {latitude.toFixed(4)}°, {longitude.toFixed(4)}°
             </div>
           </div>
-          <button className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-black dark:hover:bg-gray-700 dark:hover:text-white" onClick={onClose} aria-label="Sulje">
+          <button className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-black dark:hover:bg-gray-700 dark:hover:text-white" onClick={handleClose} aria-label="Sulje">
             <X size={20} />
           </button>
         </div>
@@ -114,7 +124,7 @@ export default function WeatherModal({ open, weather, apiKey, latitude, longitud
           )}
 
           <div className="flex justify-end">
-            <button className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700" onClick={onClose}>
+            <button className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700" onClick={handleClose}>
               Sulje
             </button>
           </div>

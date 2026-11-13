@@ -1,6 +1,7 @@
 import { ArrowUp, CloudRain, Droplets, Sun, Sunrise, Sunset, Wind } from "lucide-react";
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { formatLocalTime, type ForecastDay, type ForecastHour, type WeatherForecast } from "../weatherService";
+import { isTextInputTarget } from "../../settings/model/keyboardShortcuts";
 
 const iconUrl = (icon: string) => `https://openweathermap.org/img/wn/${icon}@2x.png`;
 const deg = (value: number) => `${Math.round(value)}°`;
@@ -15,8 +16,42 @@ function WindArrow({ deg: windDeg, size = 12, className = "text-gray-500" }: { d
 
 export default function WeatherForecastView({ forecast }: { forecast: WeatherForecast }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const tabListRef = useRef<HTMLDivElement>(null);
   const selected = forecast.days.find((d) => d.key === selectedKey) ?? forecast.days[0];
   const tz = forecast.timezoneOffset;
+
+  useEffect(() => {
+    if (forecast.days.length <= 1) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.altKey || event.metaKey) return;
+      if (isTextInputTarget(event.target)) return;
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+
+      const modals = document.querySelectorAll('[aria-modal="true"]');
+      const myModal = tabListRef.current?.closest('[aria-modal="true"]');
+      if (modals.length > 0 && myModal && modals[modals.length - 1] !== myModal) return;
+
+      const currentIdx = Math.max(0, forecast.days.findIndex((d) => d.key === (selected?.key ?? "")));
+      const nextIdx =
+        event.key === "ArrowLeft"
+          ? Math.max(0, currentIdx - 1)
+          : Math.min(forecast.days.length - 1, currentIdx + 1);
+
+      event.preventDefault();
+      event.stopPropagation();
+      const nextDay = forecast.days[nextIdx];
+      if (!nextDay) return;
+      setSelectedKey(nextDay.key);
+
+      // Siirretään kohdistus seuraavalle välilehdelle vain, jos välilehtipalkki oli jo kohdistettuna
+      if (tabListRef.current?.contains(document.activeElement)) {
+        const tabs = tabListRef.current.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+        tabs[nextIdx]?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [forecast.days, selected?.key]);
 
   if (!selected) return <div className="py-4 text-center text-sm text-gray-500">Ennustetta ei ole saatavilla.</div>;
 
@@ -27,7 +62,7 @@ export default function WeatherForecastView({ forecast }: { forecast: WeatherFor
       </h4>
 
       {/* Päiväkortit */}
-      <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Päiväennuste">
+      <div ref={tabListRef} className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Päiväennuste">
         {forecast.days.map((d, i) => {
           const active = d.key === selected.key;
           return (
@@ -60,7 +95,7 @@ export default function WeatherForecastView({ forecast }: { forecast: WeatherFor
       <p className="mt-2 text-[10px] text-gray-400">
         {forecast.source === "onecall"
           ? "Tuntiennuste 48 h ajalle, sen jälkeen vuorokauden osittain. "
-          : "Ennuste 3 tunnin välein (enintään 5 vrk). 7 päivän ennuste vaatii OpenWeatherMap One Call 3.0 -tilauksen. "}
+          : "Ennuste 3 tunnin välein (enintään 5 vrk). "}
         Ajat sijainnin paikallista aikaa. Lähde: OpenWeatherMap.
       </p>
     </section>
@@ -125,16 +160,7 @@ function HourList({ day, tz }: { day: ForecastDay; tz: number }) {
   const firstDaytime = daytime[0]?.time;
 
   return (
-    <div className="text-sm">
-      <div className={`${ROW_GRID} bg-gray-800 px-0 py-1.5 text-[11px] font-semibold text-white dark:bg-black`}>
-        <span className="pl-3">Kello</span>
-        <span className="text-center">Sää</span>
-        <span className="text-center">Lämpötila</span>
-        <span className="text-center">Tuuli m/s</span>
-        <span className="pl-2">Tuntuu kuin</span>
-        <span className="hidden pr-3 text-right sm:block">Suht. kost.</span>
-      </div>
-
+    <div className="border-t border-gray-200 text-sm dark:border-gray-700">
       <SectionRow>
         Vuorokauden sademäärä {day.precipitation.toFixed(1)} mm
       </SectionRow>

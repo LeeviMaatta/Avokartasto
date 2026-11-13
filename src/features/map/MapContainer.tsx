@@ -29,6 +29,7 @@ import Stroke from "ol/style/Stroke";
 import { Circle as CircleStyle, Fill, Style, Text as TextStyle } from "ol/style";
 import DoubleClickZoom from "ol/interaction/DoubleClickZoom";
 import DragPan from "ol/interaction/DragPan";
+import KeyboardZoom from "ol/interaction/KeyboardZoom";
 import Kinetic from "ol/Kinetic";
 import { LocateFixed } from "lucide-react";
 import { requestConfirmation } from "../../app/confirmation";
@@ -245,6 +246,10 @@ export default function MapContainer() {
     const initialDblClickZoom = map.getInteractions().getArray().find((i) => i instanceof DoubleClickZoom);
     if (initialDblClickZoom) {
       initialDblClickZoom.setActive(settings.enableDoubleClickZoom === "1");
+    }
+    const initialKbZoom = map.getInteractions().getArray().find((i) => i instanceof KeyboardZoom);
+    if (initialKbZoom) {
+      initialKbZoom.setActive(settings.keyboardShortcutsEnabled === "0");
     }
     window.addEventListener("map-search-location", handleSearchLocation);
     window.addEventListener("map-focus", handleSearchLocation);
@@ -639,6 +644,15 @@ export default function MapContainer() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    const kbZoom = map.getInteractions().getArray().find((i) => i instanceof KeyboardZoom);
+    if (kbZoom) {
+      kbZoom.setActive(settings.keyboardShortcutsEnabled === "0");
+    }
+  }, [settings.keyboardShortcutsEnabled]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
     const dblClickZoom = map.getInteractions().getArray().find((i) => i instanceof DoubleClickZoom);
     if (dblClickZoom) {
       dblClickZoom.setActive(settings.enableDoubleClickZoom === "1");
@@ -730,6 +744,7 @@ export default function MapContainer() {
     userLocFeatureRef.current = feat;
   }, [userLoc]);
 
+  const locateUserRef = useRef<() => void>(() => {});
   const handleLocateUser = () => {
     setGeoError(null);
     if (!navigator.geolocation) {
@@ -764,6 +779,43 @@ export default function MapContainer() {
       { enableHighAccuracy: true, timeout: 10000 },
     );
   };
+  locateUserRef.current = handleLocateUser;
+
+  useEffect(() => {
+    const onMapAction = (event: Event) => {
+      const action = (event as CustomEvent<string>).detail;
+      const map = mapRef.current;
+      if (!map) return;
+      const view = map.getView();
+      switch (action) {
+        case "zoomIn": {
+          const z = view.getZoom();
+          if (z !== undefined) view.animate({ zoom: Math.min(21, z + 1), duration: 150 });
+          break;
+        }
+        case "zoomOut": {
+          const z = view.getZoom();
+          if (z !== undefined) view.animate({ zoom: Math.max(0, z - 1), duration: 150 });
+          break;
+        }
+        case "locateUser":
+          locateUserRef.current();
+          break;
+        case "resetRotation":
+          view.animate({ rotation: 0, duration: 200 });
+          break;
+        case "toggleFullscreen":
+          if (document.fullscreenElement) {
+            void document.exitFullscreen().catch(() => {});
+          } else {
+            void document.documentElement.requestFullscreen?.().catch(() => {});
+          }
+          break;
+      }
+    };
+    window.addEventListener("kb-map-action", onMapAction);
+    return () => window.removeEventListener("kb-map-action", onMapAction);
+  }, []);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -875,7 +927,14 @@ export default function MapContainer() {
 
   return (
     <div className="relative h-full w-full">
-      <div ref={el} className="absolute inset-0" style={{ cursor: tool === "measure" ? "crosshair" : "default" }} />
+      <div
+        ref={el}
+        tabIndex={0}
+        data-map-viewport="true"
+        aria-label="Karttanäkymä"
+        className="absolute inset-0 outline-none"
+        style={{ cursor: tool === "measure" ? "crosshair" : "default" }}
+      />
       {showCenterCrosshair && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center z-20" style={{ opacity: overlayOpacity }}>
           <div className="relative flex items-center justify-center">

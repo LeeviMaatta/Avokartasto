@@ -26,6 +26,7 @@ import type { LayerViewDraft } from "../../layers/model/layerViewTypes";
 import FolderEditor from "../../markers/components/FolderEditor";
 import { usePersistedBool, usePersistedStringSet } from "../../settings/model/persistedUiState";
 import { requiredSecrets } from "../sources/resolveUrl";
+import { focusFirstNavigable, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 
 export default function LayerSwitcher() {
   const [openLayers, toggleOpenLayers] = usePersistedBool("layersPanelOpen", true);
@@ -49,6 +50,13 @@ export default function LayerSwitcher() {
   const rawOverlayOpacity = Number(settings.uiOverlayOpacity ?? "1");
   const overlayOpacity = Number.isFinite(rawOverlayOpacity) ? Math.min(1, Math.max(0, rawOverlayOpacity)) : 1;
   const containerRef = useRef<HTMLDivElement>(null);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+  const groupMenuRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const openLayersRef = useRef(openLayers);
+  openLayersRef.current = openLayers;
+  const toggleOpenLayersRef = useRef(toggleOpenLayers);
+  toggleOpenLayersRef.current = toggleOpenLayers;
   const [features, setFeatures] = useState<UserFeature[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; id: string; name: string; source?: LocalSource; overlay: boolean } | null>(null);
   const [groupMenu, setGroupMenu] = useState<{ x: number; y: number; id: string; name: string } | null>(null);
@@ -316,6 +324,29 @@ export default function LayerSwitcher() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [menu, groupMenu, actionMenu]);
+
+  useEffect(() => {
+    const onFocusLayers = () => {
+      if (!openLayersRef.current) {
+        toggleOpenLayersRef.current();
+      }
+      window.requestAnimationFrame(() => focusFirstNavigable(containerRef.current));
+    };
+    window.addEventListener("kb-focus-layers", onFocusLayers);
+    return () => window.removeEventListener("kb-focus-layers", onFocusLayers);
+  }, []);
+
+  useEffect(() => {
+    if (actionMenu) window.requestAnimationFrame(() => focusFirstNavigable(actionMenuRef.current));
+  }, [actionMenu]);
+
+  useEffect(() => {
+    if (groupMenu) window.requestAnimationFrame(() => focusFirstNavigable(groupMenuRef.current));
+  }, [groupMenu]);
+
+  useEffect(() => {
+    if (menu) window.requestAnimationFrame(() => focusFirstNavigable(menuRef.current));
+  }, [menu]);
 
   const beginDrag = (event: PointerEvent, kind: "overlay" | "basemap", id: string) => {
     event.preventDefault();
@@ -590,9 +621,9 @@ export default function LayerSwitcher() {
     <>
       <div className="absolute left-2 top-2 z-10 flex w-[min(16rem,calc(100vw-1rem))] flex-col gap-2 sm:left-3 sm:top-3" style={{ opacity: overlayOpacity }}>
       {/* Karttatasot */}
-      <div ref={containerRef} className="relative z-[70] overflow-hidden rounded-lg bg-white/95 dark:bg-zinc-950/95 dark:text-white text-sm shadow-lg backdrop-blur">
-        <div className="flex items-center justify-between px-3 py-2">
-          <button className="flex items-center gap-2 font-semibold" onClick={toggleOpenLayers}>
+      <div ref={containerRef} onKeyDown={(e) => handleContainerArrowKeyDown(e)} className="relative z-[70] overflow-hidden rounded-lg bg-white/95 dark:bg-zinc-950/95 dark:text-white text-sm shadow-lg backdrop-blur">
+        <div data-kb-row="true" className="flex items-center justify-between px-3 py-2">
+          <button aria-expanded={openLayers} className="flex items-center gap-2 font-semibold" onClick={toggleOpenLayers}>
             <Layers size={16} /> Karttatasot
           </button>
           <button className="rounded p-1 text-[#1671a8] hover:bg-slate-100" title="Karttatason toiminnot" onClick={(event) => {
@@ -664,6 +695,9 @@ export default function LayerSwitcher() {
       )}
       {actionMenu?.type === "layers" && (
         <div
+          ref={actionMenuRef}
+          role="menu"
+          onKeyDown={(e) => handleContainerArrowKeyDown(e, { orientation: "both", onEscape: () => setActionMenu(null) })}
           className="fixed z-[70] max-h-[min(70vh,32rem)] w-56 overflow-y-auto rounded-lg border border-slate-200 bg-white p-3 text-xs text-gray-800 shadow-xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-white"
           style={{ left: Math.max(8, actionMenu.x - 224), top: Math.min(actionMenu.y, window.innerHeight - 200) }}
         >
@@ -694,6 +728,9 @@ export default function LayerSwitcher() {
             onContextMenu={(e) => { e.preventDefault(); setGroupMenu(null); }}
           />
           <div
+            ref={groupMenuRef}
+            role="menu"
+            onKeyDown={(e) => handleContainerArrowKeyDown(e, { onEscape: () => setGroupMenu(null) })}
             className="fixed z-[80] min-w-44 max-w-60 rounded-xl border border-slate-200 bg-white/95 py-1 text-xs text-slate-800 shadow-2xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100"
             style={{ left: groupMenu.x, top: groupMenu.y }}
           >
@@ -727,6 +764,9 @@ export default function LayerSwitcher() {
             onContextMenu={(e) => { e.preventDefault(); setMenu(null); }}
           />
           <div
+            ref={menuRef}
+            role="menu"
+            onKeyDown={(e) => handleContainerArrowKeyDown(e, { onEscape: () => setMenu(null) })}
             className="fixed z-[80] min-w-48 max-w-64 overflow-hidden rounded-xl border border-slate-200 bg-white/95 py-1 text-xs text-slate-800 shadow-2xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100"
             style={{ left: menu.x, top: menu.y }}
           >

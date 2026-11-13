@@ -342,7 +342,7 @@ pub fn reset_source_to_default(db: State<Db>, id: i64) -> Res<()> {
         "UPDATE local_sources SET name=?1,role=?2,api_type=?3,url=?4,attribution=?5,
          max_zoom=?6,opacity=?7,params=?8,auth=?9,note=?10,kind=?11,
          base_path='',pattern='{z}/{x}/{y}.png',min_zoom=0,tile_size=256,
-         layer_name='',style='',view_zoom_offset=0,view_magnification=1 WHERE id=?12",
+         layer_name=?12,style=?13,view_zoom_offset=0,view_magnification=1 WHERE id=?14",
         rusqlite::params![
             text("name"),
             text("role"),
@@ -355,6 +355,8 @@ pub fn reset_source_to_default(db: State<Db>, id: i64) -> Res<()> {
             text("auth"),
             text("note"),
             source_kind(text("api_type")),
+            text("layer_name"),
+            text("style"),
             id
         ],
     )

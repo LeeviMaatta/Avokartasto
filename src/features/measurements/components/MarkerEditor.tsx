@@ -1,5 +1,6 @@
 import { MapPin, Save, Trash2, X } from "lucide-react";
 import { useMapStore } from "../../../store/mapStore";
+import { focusMapViewport, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 
 export type MarkerFolder = { id: string; name: string; visible?: boolean };
 export type MarkerDraft = {
@@ -41,6 +42,7 @@ export default function MarkerEditor({
   );
   return (
     <div 
+      onKeyDown={(event) => handleContainerArrowKeyDown(event, { orientation: "horizontal", onEscape: () => { onCancel(); focusMapViewport(); } })}
       className="absolute left-2 right-2 top-16 z-20 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 py-2.5 text-xs text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 sm:left-1/2 sm:right-auto sm:top-20 sm:max-w-[min(96vw,56rem)] sm:-translate-x-1/2 sm:gap-2.5 sm:px-4" 
       style={{ opacity }}
     >
@@ -50,6 +52,7 @@ export default function MarkerEditor({
       </span>
 
       <input 
+        autoFocus
         className="min-w-28 flex-1 sm:flex-initial sm:w-36 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" 
         placeholder="Nimi (valinnainen)" 
         aria-label="Merkin nimi" 

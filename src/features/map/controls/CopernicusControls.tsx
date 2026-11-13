@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Calendar, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cloud, Layers, Loader2, RotateCcw, Satellite, Settings } from "lucide-react";
 import { useMapStore } from "../../../store/mapStore";
 import { usePersistedBool } from "../../settings/model/persistedUiState";
+import { focusFirstNavigable, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 import {
   COPERNICUS_LAYER_PRESETS,
   COPERNICUS_MIN_YEAR,
@@ -50,6 +51,11 @@ export default function CopernicusControls() {
   const setSetting = useMapStore((s) => s.setSetting);
   const setSettings = useMapStore((s) => s.setSettings);
   const [open, toggleOpen] = usePersistedBool("copernicusControlsOpen", true);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
+  const toggleOpenRef = useRef(toggleOpen);
+  toggleOpenRef.current = toggleOpen;
   const [layerPickerOpen, toggleLayerPickerOpen] = usePersistedBool("copernicusLayerPickerOpen", true);
   const [instanceLayers, setInstanceLayers] = useState<CopernicusLayerInfo[]>([]);
   const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null);
@@ -65,6 +71,16 @@ export default function CopernicusControls() {
   const maxCloud = Number.isFinite(Number(settings.copernicusMaxCloud)) ? Number(settings.copernicusMaxCloud) : 20;
   const dateMode = (settings.copernicusDateMode as CopernicusDateMode) || "latest";
   const copernicusActive = isCopernicusActiveForSelection(sources, basemap, overlays, hiddenLayers);
+
+  useEffect(() => {
+    const onFocusCopernicus = () => {
+      if (!copernicusActive) return;
+      if (!openRef.current) toggleOpenRef.current();
+      window.requestAnimationFrame(() => focusFirstNavigable(panelRef.current));
+    };
+    window.addEventListener("kb-focus-copernicus", onFocusCopernicus);
+    return () => window.removeEventListener("kb-focus-copernicus", onFocusCopernicus);
+  }, [copernicusActive]);
   const { startIso: rangeStartIso, endIso: rangeEndIso } = resolveCopernicusRangeBounds(settings);
 
   useEffect(() => {
@@ -162,11 +178,14 @@ export default function CopernicusControls() {
 
   return (
     <div
+      ref={panelRef}
+      onKeyDown={(e) => handleContainerArrowKeyDown(e, { orientation: "both" })}
       className="pointer-events-auto absolute bottom-3 left-1/2 z-20 w-[min(25rem,calc(100vw-1rem))] -translate-x-1/2 rounded-xl border border-slate-200 bg-white/95 text-xs text-slate-800 shadow-2xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100"
       style={{ opacity: overlayOpacity }}
     >
       <button
         type="button"
+        aria-expanded={open}
         onClick={toggleOpen}
         className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
       >

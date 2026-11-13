@@ -145,6 +145,14 @@ pub fn seed_default_sources(conn: &Connection) -> Res<()> {
             .get("builtin_key")
             .and_then(serde_json::Value::as_str)
             .ok_or("Oletuslähteeltä puuttuu builtin_key")?;
+        let default_layer_name = source
+            .get("layer_name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let default_style = source
+            .get("style")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
         let exists: bool = conn
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM local_sources WHERE builtin_key=?1)",
@@ -153,6 +161,17 @@ pub fn seed_default_sources(conn: &Connection) -> Res<()> {
             )
             .map_err(e)?;
         if exists {
+            if !default_layer_name.is_empty() || !default_style.is_empty() {
+                conn.execute(
+                    "UPDATE local_sources
+                     SET layer_name = CASE WHEN COALESCE(layer_name, '') = '' THEN ?1 ELSE layer_name END,
+                         style = CASE WHEN COALESCE(style, '') = '' THEN ?2 ELSE style END,
+                         factory_json = ?3
+                     WHERE builtin_key = ?4",
+                    params![default_layer_name, default_style, source.to_string(), builtin_key],
+                )
+                .map_err(e)?;
+            }
             if google_migrated.as_deref() != Some("1") && builtin_key.starts_with("g-") {
                 let note = source.get("note").and_then(serde_json::Value::as_str).unwrap_or("");
                 conn.execute(
@@ -175,7 +194,7 @@ pub fn seed_default_sources(conn: &Connection) -> Res<()> {
             "INSERT INTO local_sources
              (name,base_path,pattern,projection,role,opacity,max_zoom,attribution,api_type,
               tile_size,layer_name,style,builtin_key,is_default,factory_json,kind,url,params,auth,note)
-             VALUES (?1,'','{z}/{x}/{y}.png','EPSG:3857',?2,?3,?4,?5,?6,256,'','',?7,1,?8,?9,?10,?11,?12,?13)",
+             VALUES (?1,'','{z}/{x}/{y}.png','EPSG:3857',?2,?3,?4,?5,?6,256,?7,?8,?9,1,?10,?11,?12,?13,?14,?15)",
             params![
                 source.get("name").and_then(serde_json::Value::as_str).unwrap_or("Karttataso"),
                 source.get("role").and_then(serde_json::Value::as_str).unwrap_or("overlay"),
@@ -183,6 +202,8 @@ pub fn seed_default_sources(conn: &Connection) -> Res<()> {
                 source.get("max_zoom").and_then(serde_json::Value::as_i64).unwrap_or(19),
                 source.get("attribution").and_then(serde_json::Value::as_str).unwrap_or(""),
                 api_type,
+                default_layer_name,
+                default_style,
                 builtin_key,
                 source.to_string(),
                 source_kind(api_type),
@@ -383,5 +404,24 @@ mod tests {
             .unwrap();
         assert_eq!(g_sat_url, "");
         assert_eq!(g_hyb_url, "https://custom.tiles.example/{z}/{x}/{y}.png");
+    }
+
+    #[test]
+    fn seeds_and_repairs_fmi_rain_layer_name() {
+        let conn = Connection::open_in_memory().unwrap();
+        initialize_db(&conn).unwrap();
+
+        let seeded_layer_name: String = conn
+            .query_row("SELECT layer_name FROM local_sources WHERE builtin_key='fmi-rain'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(seeded_layer_name, "Radar:suomi_dbz_eureffin");
+
+        conn.execute("UPDATE local_sources SET layer_name = '' WHERE builtin_key = 'fmi-rain'", []).unwrap();
+        seed_default_sources(&conn).unwrap();
+
+        let repaired_layer_name: String = conn
+            .query_row("SELECT layer_name FROM local_sources WHERE builtin_key='fmi-rain'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(repaired_layer_name, "Radar:suomi_dbz_eureffin");
     }
 }

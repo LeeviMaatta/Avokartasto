@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import Feature from "ol/Feature";
 import GeoJSON from "ol/format/GeoJSON";
 import LineString from "ol/geom/LineString";
@@ -13,6 +14,7 @@ import {
   clearSavedEditFeatures,
   ensureUnsavedMeasurementId,
 } from "../../measurements/domain/measurementSource";
+import { focusFirstNavigable, focusMapViewport, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 
 type ContextMenuState = { feature: Feature; x: number; y: number; savedId?: number };
 
@@ -25,6 +27,13 @@ interface FeatureContextMenuProps {
 }
 
 export default function FeatureContextMenu({ value, opacity, measureSource, profileRequest, onClose }: FeatureContextMenuProps) {
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!value) return;
+    window.requestAnimationFrame(() => focusFirstNavigable(menuRef.current));
+  }, [value]);
+
   if (!value) return null;
   const geometry = value.feature.getGeometry();
   const isPoint = geometry instanceof Point;
@@ -34,7 +43,14 @@ export default function FeatureContextMenu({ value, opacity, measureSource, prof
     : "";
 
   return (
-    <div style={{ top: value.y, left: value.x, opacity }} data-feature-context-menu className="absolute z-40 rounded-lg border border-gray-700 bg-white py-1 text-xs shadow-xl dark:bg-gray-800 dark:text-white">
+    <div
+      ref={menuRef}
+      role="menu"
+      onKeyDown={(event) => handleContainerArrowKeyDown(event, { onEscape: () => { onClose(); focusMapViewport(); } })}
+      style={{ top: value.y, left: value.x, opacity }}
+      data-feature-context-menu
+      className="absolute z-40 rounded-lg border border-gray-700 bg-white py-1 text-xs shadow-xl dark:bg-gray-800 dark:text-white"
+    >
       <button
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[#1671a8] hover:bg-gray-100 dark:hover:bg-gray-700"
         onClick={() => {

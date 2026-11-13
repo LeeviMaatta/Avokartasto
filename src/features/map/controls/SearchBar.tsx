@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMapStore } from "../../../store/mapStore";
 import { searchNominatim, type NominatimSearchHit } from "../sources/nominatimService";
 import { searchSavedMarkers, type MarkerSearchHit } from "../../markers/domain/markerSearch";
+import { focusMapViewport, getNavigableItems } from "../../../shared/keyboardNavigation";
 
 type SearchResult = NominatimSearchHit;
 const SEARCH_TIMEOUT_MS = 10_000;
@@ -14,6 +15,8 @@ export default function SearchBar() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
   const searchController = useRef<AbortController | null>(null);
   const rawOverlayOpacity = Number(useMapStore((s) => s.settings.uiOverlayOpacity ?? "1"));
   const overlayOpacity = Number.isFinite(rawOverlayOpacity) ? Math.min(1, Math.max(0, rawOverlayOpacity)) : 1;
@@ -119,9 +122,15 @@ export default function SearchBar() {
     };
     window.addEventListener("mousedown", handleOutsideClick);
     window.addEventListener("keydown", handleKeyDown);
+    const onFocusSearch = () => {
+      inputRef.current?.focus({ preventScroll: true });
+      inputRef.current?.select();
+    };
+    window.addEventListener("kb-focus-search", onFocusSearch);
     return () => {
       window.removeEventListener("mousedown", handleOutsideClick);
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("kb-focus-search", onFocusSearch);
     };
   }, []);
 
@@ -161,12 +170,33 @@ export default function SearchBar() {
         onSubmit={(event) => { event.preventDefault(); void search(); }}
       >
         <Search size={18} className="m-2 shrink-0 text-slate-400 dark:text-zinc-500" />
-        <input 
-          className="min-w-0 flex-1 bg-transparent px-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-zinc-500" 
-          value={query} 
-          onChange={(event) => setQuery(event.target.value)} 
-          placeholder="Hae paikkaa, osoitetta tai omaa merkkiä..." 
-          aria-label="Hae paikkaa" 
+        <input
+          ref={inputRef}
+          className="min-w-0 flex-1 bg-transparent px-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-zinc-500"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" && resultsRef.current) {
+              const items = getNavigableItems(resultsRef.current);
+              if (items.length > 0) {
+                event.preventDefault();
+                items[0].focus({ preventScroll: true });
+              }
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              if (markerResults.length > 0 || results.length > 0 || error) {
+                setResults([]);
+                setMarkerResults([]);
+                setError(null);
+              } else {
+                inputRef.current?.blur();
+                focusMapViewport();
+              }
+            }
+          }}
+          placeholder="Hae paikkaa, osoitetta tai omaa merkkiä..."
+          aria-label="Hae paikkaa"
         />
         {loading && <Loader2 size={15} className="animate-spin text-blue-500 mr-1 shrink-0" />}
         {query && (
@@ -189,7 +219,31 @@ export default function SearchBar() {
       </form>
 
       {(markerResults.length > 0 || results.length > 0 || error) && (
-        <div className="mt-1.5 overflow-hidden rounded-xl border border-slate-200 bg-white/98 text-xs text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/98 dark:text-zinc-100">
+        <div
+          ref={resultsRef}
+          onKeyDown={(event) => {
+            if (!resultsRef.current) return;
+            const items = getNavigableItems(resultsRef.current);
+            const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            const idx = active ? items.indexOf(active) : -1;
+            if (event.key === "ArrowDown" && items.length > 0) {
+              event.preventDefault();
+              items[(idx + 1) % items.length].focus({ preventScroll: true });
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              if (idx <= 0) inputRef.current?.focus({ preventScroll: true });
+              else items[idx - 1].focus({ preventScroll: true });
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              setResults([]);
+              setMarkerResults([]);
+              setError(null);
+              inputRef.current?.focus({ preventScroll: true });
+            }
+          }}
+          className="mt-1.5 overflow-hidden rounded-xl border border-slate-200 bg-white/98 text-xs text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/98 dark:text-zinc-100"
+        >
           <div className="max-h-60 overflow-y-auto">
             {markerResults.map((hit) => (
             <button

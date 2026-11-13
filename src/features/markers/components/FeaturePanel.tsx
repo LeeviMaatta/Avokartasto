@@ -1,5 +1,7 @@
+import { useEffect, useRef } from "react";
 import { Bookmark, ChevronDown, ChevronRight, Eye, EyeOff, Folder, FolderPlus, Pencil, Trash2 } from "lucide-react";
 import type { MarkerFolder, MarkerPanelProps } from "../model/markerTypes";
+import { focusFirstNavigable, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 
 export default function FeaturePanel({
   features,
@@ -21,8 +23,25 @@ export default function FeaturePanel({
   onOpenFeature,
   onDeleteFeature,
 }: MarkerPanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
+  const toggleOpenRef = useRef(onToggleOpen);
+  toggleOpenRef.current = onToggleOpen;
+
+  useEffect(() => {
+    const onFocusMarkers = () => {
+      if (!openRef.current) {
+        toggleOpenRef.current();
+      }
+      window.requestAnimationFrame(() => focusFirstNavigable(panelRef.current));
+    };
+    window.addEventListener("kb-focus-markers", onFocusMarkers);
+    return () => window.removeEventListener("kb-focus-markers", onFocusMarkers);
+  }, []);
+
   const renderFeatureRow = (feature: typeof features[number]) => (
-    <div key={feature.id} className="flex items-center gap-1 border-b py-1 text-xs last:border-none dark:border-gray-700">
+    <div key={feature.id} data-kb-row="true" className="flex items-center gap-1 border-b py-1 text-xs last:border-none dark:border-gray-700">
       <button
         className="shrink-0 rounded p-0.5 text-gray-400 hover:bg-slate-100 hover:text-gray-700 dark:hover:bg-gray-700"
         title={hiddenFeatureIds.includes(feature.id) ? "Näytä kartalla" : "Piilota kartalta"}
@@ -51,9 +70,13 @@ export default function FeaturePanel({
   const ungroupedFeatures = features.filter((feature) => !feature.folder_id || !folders.some((folder) => folder.id === feature.folder_id));
 
   return (
-    <div className="overflow-hidden rounded-lg bg-white/95 text-sm shadow-lg backdrop-blur dark:bg-zinc-950/95 dark:text-white">
-      <div className="flex w-full items-center gap-1 pr-2">
-        <button className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left font-semibold" onClick={onToggleOpen}>
+    <div
+      ref={panelRef}
+      onKeyDown={(event) => handleContainerArrowKeyDown(event)}
+      className="overflow-hidden rounded-lg bg-white/95 text-sm shadow-lg backdrop-blur dark:bg-zinc-950/95 dark:text-white"
+    >
+      <div data-kb-row="true" className="flex w-full items-center gap-1 pr-2">
+        <button aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left font-semibold" onClick={onToggleOpen}>
           <Bookmark size={16} /> <span className="truncate">Merkit ({features.length})</span>
         </button>
         <button
@@ -82,7 +105,7 @@ export default function FeaturePanel({
             const isExpanded = expandedFolderIds.has(folder.id);
             return (
               <div key={folder.id} className="rounded border-b border-slate-100 last:border-none dark:border-gray-700">
-                <div className="flex items-center gap-1 py-1 text-xs">
+                <div data-kb-row="true" className="flex items-center gap-1 py-1 text-xs">
                   <button className="rounded p-0.5 hover:bg-slate-100 dark:hover:bg-gray-700" title={folder.visible ? "Piilota kansio kartalta" : "Näytä kansio kartalla"} onClick={() => onToggleFolder(folder)}>
                     {folder.visible ? <Eye size={14} /> : <EyeOff size={14} className="text-gray-400" />}
                   </button>

@@ -13,11 +13,13 @@ import AppToolbar from "./appToolbar/AppToolbar";
 import DebugOverlay from "../features/debug/DebugOverlay";
 import { useDebugStore } from "../features/debug/debugStore";
 import LoadingScreen from "./LoadingScreen";
+import { useGlobalKeyboardShortcuts } from "./useGlobalKeyboardShortcuts";
 import type { UiStyle } from "../features/settings/model/settingTypes";
 
 const ElevationChart = lazy(() => import("../features/measurements/ElevationChart"));
 
 export default function App() {
+  useGlobalKeyboardShortcuts();
   const loadAll = useMapStore((s) => s.loadAll);
   const persistenceError = useMapStore((s) => s.persistenceError);
   const clearPersistenceError = useMapStore((s) => s.clearPersistenceError);

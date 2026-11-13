@@ -57,4 +57,6 @@ export const SETTING_VALUE_KEYS = [
   "copernicusRangeEnd",
   "copernicusRangeYear",
   "copernicusRangeSelectedDate",
+  "keyboardShortcutsEnabled",
+  "keyboardShortcuts",
 ] as const;

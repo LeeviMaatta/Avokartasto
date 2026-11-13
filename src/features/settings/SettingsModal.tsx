@@ -9,12 +9,29 @@ import {
   Ruler, 
   MapPin,
   KeyRound, 
+  Keyboard,
+  RotateCcw,
   Bug, 
   Check 
 } from "lucide-react";
 import { useMapStore } from "../../store/mapStore";
 import { SETTING_KEYS, SETTING_TOGGLES, SETTING_VALUE_KEYS } from "./model/settingFields";
 import { parseOpenSections } from "./model/persistedUiState";
+import {
+  DEFAULT_SHORTCUTS,
+  SHORTCUT_CATEGORIES,
+  SHORTCUT_DEFINITIONS,
+  findShortcutConflicts,
+  formatShortcutLabel,
+  normalizeShortcutFromEvent,
+  parseShortcuts,
+  type ShortcutActionId,
+} from "./model/keyboardShortcuts";
+import {
+  focusFirstNavigable,
+  focusMapViewport,
+  handleContainerArrowKeyDown,
+} from "../../shared/keyboardNavigation";
 import {
   BACKDROP_MAX_ZOOM,
   abortBackdropPreload,
@@ -31,6 +48,7 @@ const DEFAULT_OPEN_SECTIONS: Record<string, boolean> = {
   coords: false,
   measure: false,
   colors: false,
+  keyboard: false,
   api: false,
   debug: false,
 };
@@ -49,7 +67,9 @@ export default function SettingsModal() {
   const [debugDraft, setDebugDraft] = useState<DebugSettings>(DEFAULT_DEBUG_SETTINGS);
   const [debugDataOpen, setDebugDataOpen] = useState(false);
   const [savedInitialView, setSavedInitialView] = useState(false);
+  const [capturingAction, setCapturingAction] = useState<ShortcutActionId | null>(null);
   const [backdropStatus, setBackdropStatus] = useState<BackdropCacheStatus>(() => getBackdropCacheStatus());
+  const dialogRef = useRef<HTMLDivElement>(null);
   
   // Accordion sections
   const openSections = parseOpenSections(settings.settingsOpenSections, DEFAULT_OPEN_SECTIONS);
@@ -58,6 +78,8 @@ export default function SettingsModal() {
   draftRef.current = draft;
   const debugDraftRef = useRef(debugDraft);
   debugDraftRef.current = debugDraft;
+  const capturingActionRef = useRef(capturingAction);
+  capturingActionRef.current = capturingAction;
 
   useEffect(() => subscribeBackdropCacheStatus(setBackdropStatus), []);
 
@@ -67,8 +89,41 @@ export default function SettingsModal() {
       setDebugDraft(parseDebugSettings(settings.debugSettings));
       setDebugDataOpen(false);
       setSavedInitialView(false);
+      setCapturingAction(null);
+    } else {
+      setCapturingAction(null);
     }
   }, [settingsOpen, settings]);
+
+  useEffect(() => {
+    if (settingsOpen) {
+      requestAnimationFrame(() => focusFirstNavigable(dialogRef.current));
+    }
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    if (!capturingAction) return;
+    const handleCapture = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        setCapturingAction(null);
+        return;
+      }
+      const combo = normalizeShortcutFromEvent(event);
+      if (!combo) return;
+      setDraft((prev) => {
+        const current = parseShortcuts(prev.keyboardShortcuts);
+        return {
+          ...prev,
+          keyboardShortcuts: JSON.stringify({ ...current, [capturingAction]: combo }),
+        };
+      });
+      setCapturingAction(null);
+    };
+    window.addEventListener("keydown", handleCapture, true);
+    return () => window.removeEventListener("keydown", handleCapture, true);
+  }, [capturingAction]);
 
   const toggleSection = (key: string) => {
     const next = { ...openSections, [key]: !openSections[key] };
@@ -91,13 +146,14 @@ export default function SettingsModal() {
     });
     useDebugStore.setState({ settings: currentDebug });
     useMapStore.setState({ settingsOpen: false });
+    requestAnimationFrame(() => focusMapViewport());
   };
 
   // Close on Escape
   useEffect(() => {
     if (!settingsOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !capturingActionRef.current) {
         void close();
       }
     };
@@ -129,6 +185,27 @@ export default function SettingsModal() {
 
   if (!settingsOpen) return null;
 
+  const parsedShortcuts = parseShortcuts(draft.keyboardShortcuts);
+  const shortcutConflicts = findShortcutConflicts(parsedShortcuts);
+
+  const updateShortcut = (action: ShortcutActionId, value: string) => {
+    setDraft((prev) => {
+      const current = parseShortcuts(prev.keyboardShortcuts);
+      return {
+        ...prev,
+        keyboardShortcuts: JSON.stringify({ ...current, [action]: value }),
+      };
+    });
+  };
+
+  const resetAllShortcuts = () => {
+    setCapturingAction(null);
+    setDraft((prev) => ({
+      ...prev,
+      keyboardShortcuts: JSON.stringify({ ...DEFAULT_SHORTCUTS }),
+    }));
+  };
+
   return (
     <div 
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 backdrop-blur-xs transition-opacity sm:p-4"
@@ -137,10 +214,17 @@ export default function SettingsModal() {
       }}
     >
       <div 
+        ref={dialogRef}
         className="flex max-h-[92vh] w-[calc(100vw-1rem)] max-w-[680px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-sm text-slate-800 shadow-2xl transition-all dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-heading"
+        onKeyDown={(e) => {
+          if (capturingAction) return;
+          handleContainerArrowKeyDown(e, {
+            onEscape: () => void close(),
+          });
+        }}
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-zinc-800 sm:px-6">
@@ -842,6 +926,142 @@ export default function SettingsModal() {
                     }
                   >
                     Palauta oletusvärit
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Section: Näppäimistö & Pikanäppäimet */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/50 transition-colors dark:border-zinc-800 dark:bg-zinc-900/40">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between px-4 py-3 font-semibold text-slate-800 dark:text-zinc-200"
+              onClick={() => toggleSection("keyboard")}
+              aria-expanded={openSections.keyboard}
+            >
+              <div className="flex items-center gap-2">
+                <Keyboard size={18} className="text-blue-600 dark:text-blue-400" />
+                <span>Näppäimistö &amp; Pikanäppäimet</span>
+              </div>
+              {openSections.keyboard ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+            </button>
+            {openSections.keyboard && (
+              <div className="space-y-4 border-t border-slate-200 p-4 dark:border-zinc-800">
+                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
+                  <div>
+                    <div className="font-medium text-slate-800 dark:text-zinc-200">
+                      Pikanäppäimet käytössä
+                    </div>
+                    <div className="text-xs text-slate-500 dark:text-zinc-400">
+                      Nuolinäppäimet liikkuvat valikoissa ja siirtävät karttaa, kun kartta on valittuna. Esc palauttaa kartalle.
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-blue-600"
+                    checked={draft.keyboardShortcutsEnabled !== "0"}
+                    onChange={(e) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        keyboardShortcutsEnabled: e.target.checked ? "1" : "0",
+                      }))
+                    }
+                  />
+                </label>
+
+                {shortcutConflicts.size > 0 && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-300">
+                    Huomio: sama pikanäppäin on määritetty useammalle toiminnolle. Korjaa korostetut rivit, jos haluat välttää päällekkäisyydet.
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  {SHORTCUT_CATEGORIES.map((category) => {
+                    const defs = SHORTCUT_DEFINITIONS.filter((d) => d.category === category.id);
+                    return (
+                      <div key={category.id} className="space-y-1.5">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
+                          {category.label}
+                        </div>
+                        <div className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">
+                          {defs.map((def) => {
+                            const currentCombo = parsedShortcuts[def.id] ?? "";
+                            const isCapturing = capturingAction === def.id;
+                            const hasConflict = shortcutConflicts.has(def.id);
+                            return (
+                              <div
+                                key={def.id}
+                                data-kb-row="true"
+                                className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 ${
+                                  hasConflict ? "bg-amber-50/70 dark:bg-amber-950/20" : ""
+                                }`}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 text-xs font-medium text-slate-800 dark:text-zinc-200">
+                                    <span>{def.label}</span>
+                                    {hasConflict && (
+                                      <span className="rounded bg-amber-200/80 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">
+                                        Päällekkäinen
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 dark:text-zinc-400">
+                                    Oletus: {formatShortcutLabel(def.defaultKey)}
+                                  </div>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    data-shortcut-capturing={isCapturing ? "true" : undefined}
+                                    onClick={() => setCapturingAction(isCapturing ? null : def.id)}
+                                    className={`min-w-[92px] rounded-md border px-2.5 py-1 text-center text-xs font-mono transition ${
+                                      isCapturing
+                                        ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-500/30 dark:border-blue-400 dark:bg-blue-950/60 dark:text-blue-300"
+                                        : hasConflict
+                                          ? "border-amber-400 bg-white text-amber-800 hover:bg-amber-50 dark:border-amber-600 dark:bg-zinc-900 dark:text-amber-300"
+                                          : "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                    }`}
+                                    title="Klikkaa tai paina Enter määrittääksesi pikanäppäimen (Esc peruuttaa)"
+                                  >
+                                    {isCapturing
+                                      ? "Paina näppäintä..."
+                                      : currentCombo
+                                        ? formatShortcutLabel(currentCombo)
+                                        : "Ei asetettu"}
+                                  </button>
+                                  {currentCombo && (
+                                    <button
+                                      type="button"
+                                      onClick={() => updateShortcut(def.id, "")}
+                                      className="rounded-md border border-slate-200 p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:border-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                                      title={`Tyhjennä pikanäppäin (${def.label})`}
+                                      aria-label={`Tyhjennä pikanäppäin: ${def.label}`}
+                                    >
+                                      <X size={14} />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <div className="text-[11px] text-slate-500 dark:text-zinc-400">
+                    Vinkki: Valikot toimivat myös nuolinäppäimillä, <kbd className="rounded border border-slate-300 px-1 dark:border-zinc-700">Enter</kbd> valitsee ja <kbd className="rounded border border-slate-300 px-1 dark:border-zinc-700">Esc</kbd> palaa kartalle.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={resetAllShortcuts}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  >
+                    <RotateCcw size={13} />
+                    <span>Palauta oletuspikanäppäimet</span>
                   </button>
                 </div>
               </div>

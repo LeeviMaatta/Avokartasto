@@ -36,6 +36,7 @@ export default function LayerList({
   const renderLayer = (layer: typeof basemaps[number], role: "basemap" | "overlay", ids: string[]) => (
     <div
       key={layer.id}
+      data-kb-row="true"
       onPointerEnter={() => {
         if (draggingGroup && draggingGroup.role === role) {
           onMoveDraggedGroupOverLayer?.(role, layer.id, ids);
@@ -143,7 +144,7 @@ export default function LayerList({
                   : "border-slate-100 bg-slate-50/50 dark:border-zinc-800/80 dark:bg-zinc-900/30"
               }`}
             >
-              <div className="group/grp flex items-center justify-between gap-1 px-1 py-0.5 text-[11px] font-medium text-slate-600 dark:text-zinc-300">
+              <div data-kb-row="true" className="group/grp flex items-center justify-between gap-1 px-1 py-0.5 text-[11px] font-medium text-slate-600 dark:text-zinc-300">
                 <div className="flex min-w-0 flex-1 items-center gap-1">
                   {onBeginDragGroup && (
                     <span
@@ -158,6 +159,7 @@ export default function LayerList({
                   )}
                   <button
                     type="button"
+                    aria-expanded={isGrpExpanded}
                     onClick={() => toggleGroupExpanded(group.id)}
                     className="flex min-w-0 flex-1 items-center gap-1.5 hover:text-slate-900 dark:hover:text-white text-left"
                   >
@@ -200,6 +202,7 @@ export default function LayerList({
       <div className="mb-1">
         <button
           type="button"
+          aria-expanded={expandedBasemaps}
           onClick={toggleBasemaps}
           className="flex w-full items-center justify-between py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200"
         >
@@ -218,6 +221,7 @@ export default function LayerList({
       <div className="mt-2 border-t border-slate-100 pt-1.5 dark:border-zinc-800/60">
         <button
           type="button"
+          aria-expanded={expandedOverlays}
           onClick={toggleOverlays}
           className="flex w-full items-center justify-between py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200"
         >
@@ -245,6 +249,7 @@ export default function LayerList({
         <div className="mt-2 border-t border-slate-100 pt-1.5 dark:border-zinc-800/60">
           <button
             type="button"
+            aria-expanded={expandedHidden}
             onClick={toggleHidden}
             className="flex w-full items-center justify-between py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-300"
           >

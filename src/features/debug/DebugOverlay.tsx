@@ -1,17 +1,78 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { X, Minus, Maximize2, Activity, GripHorizontal } from "lucide-react";
 import { refreshDebugSnapshot, startPerformanceMonitor, stopPerformanceMonitor } from "./debugMonitor";
 import { useDebugStore } from "./debugStore";
-import { DEBUG_CATEGORIES, DEBUG_VALUES } from "./model/debugTypes";
+import { DEBUG_CATEGORIES, DEBUG_VALUES, type DebugCustomPosition } from "./model/debugTypes";
 import { useMapStore } from "../../store/mapStore";
+import { focusMapViewport, handleContainerArrowKeyDown } from "../../shared/keyboardNavigation";
+
+const OVERLAY_VIEWPORT_PADDING = 8;
+
+export function clampDebugPosition(
+  pos: { left: number; top: number },
+  box: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { left: number; top: number } {
+  const maxLeft = Math.max(OVERLAY_VIEWPORT_PADDING, viewport.width - box.width - OVERLAY_VIEWPORT_PADDING);
+  const maxTop = Math.max(OVERLAY_VIEWPORT_PADDING, viewport.height - box.height - OVERLAY_VIEWPORT_PADDING);
+  return {
+    left: Math.min(maxLeft, Math.max(OVERLAY_VIEWPORT_PADDING, pos.left)),
+    top: Math.min(maxTop, Math.max(OVERLAY_VIEWPORT_PADDING, pos.top)),
+  };
+}
+
+export function toRelativeDebugPosition(
+  pos: { left: number; top: number },
+  box: { width: number; height: number },
+  viewport: { width: number; height: number },
+): DebugCustomPosition {
+  const clamped = clampDebugPosition(pos, box, viewport);
+  const spanX = Math.max(0, viewport.width - box.width - 2 * OVERLAY_VIEWPORT_PADDING);
+  const spanY = Math.max(0, viewport.height - box.height - 2 * OVERLAY_VIEWPORT_PADDING);
+  return {
+    left: clamped.left,
+    top: clamped.top,
+    xRatio: spanX > 0 ? (clamped.left - OVERLAY_VIEWPORT_PADDING) / spanX : 0,
+    yRatio: spanY > 0 ? (clamped.top - OVERLAY_VIEWPORT_PADDING) / spanY : 0,
+  };
+}
+
+export function resolveDebugPosition(
+  pos: DebugCustomPosition,
+  box: { width: number; height: number },
+  viewport: { width: number; height: number },
+): DebugCustomPosition {
+  if (typeof pos.xRatio === "number" && Number.isFinite(pos.xRatio) && typeof pos.yRatio === "number" && Number.isFinite(pos.yRatio)) {
+    const xRatio = Math.min(1, Math.max(0, pos.xRatio));
+    const yRatio = Math.min(1, Math.max(0, pos.yRatio));
+    const spanX = Math.max(0, viewport.width - box.width - 2 * OVERLAY_VIEWPORT_PADDING);
+    const spanY = Math.max(0, viewport.height - box.height - 2 * OVERLAY_VIEWPORT_PADDING);
+    const clamped = clampDebugPosition(
+      {
+        left: Math.round(OVERLAY_VIEWPORT_PADDING + xRatio * spanX),
+        top: Math.round(OVERLAY_VIEWPORT_PADDING + yRatio * spanY),
+      },
+      box,
+      viewport,
+    );
+    return {
+      left: clamped.left,
+      top: clamped.top,
+      xRatio,
+      yRatio,
+    };
+  }
+  const clamped = clampDebugPosition(pos, box, viewport);
+  return { ...pos, left: clamped.left, top: clamped.top };
+}
 
 export default function DebugOverlay() {
   const settings = useDebugStore((state) => state.settings);
   const snapshot = useDebugStore((state) => state.snapshot);
   const events = useDebugStore((state) => state.events);
   const [minimized, setMinimized] = useState(false);
-  const [coords, setCoords] = useState<{ left: number; top: number } | null>(settings.customPosition ?? null);
-  const coordsRef = useRef<{ left: number; top: number } | null>(coords);
+  const [coords, setCoords] = useState<DebugCustomPosition | null>(settings.customPosition ?? null);
+  const coordsRef = useRef<DebugCustomPosition | null>(coords);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{
     startX: number;
@@ -23,11 +84,45 @@ export default function DebugOverlay() {
     moved: boolean;
   } | null>(null);
 
+  const syncPositionToViewport = useCallback(() => {
+    const current = coordsRef.current;
+    const el = containerRef.current;
+    if (!current || !el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return;
+    const resolved = resolveDebugPosition(
+      current,
+      { width: rect.width, height: rect.height },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    if (resolved.left !== current.left || resolved.top !== current.top) {
+      coordsRef.current = resolved;
+      setCoords(resolved);
+    }
+  }, []);
+
   useEffect(() => {
     const next = settings.customPosition ?? null;
     coordsRef.current = next;
     setCoords(next);
   }, [settings.customPosition]);
+
+  useLayoutEffect(() => {
+    if (!settings.enabled || !coords) return;
+    syncPositionToViewport();
+  }, [settings.enabled, minimized, coords, syncPositionToViewport]);
+
+  useEffect(() => {
+    if (!settings.enabled || !coords) return;
+    window.addEventListener("resize", syncPositionToViewport);
+    const el = containerRef.current;
+    const observer = typeof ResizeObserver !== "undefined" && el ? new ResizeObserver(syncPositionToViewport) : null;
+    if (observer && el) observer.observe(el);
+    return () => {
+      window.removeEventListener("resize", syncPositionToViewport);
+      observer?.disconnect();
+    };
+  }, [settings.enabled, minimized, Boolean(coords), syncPositionToViewport]);
 
   useEffect(() => {
     const handlePointerMove = (e: PointerEvent) => {
@@ -36,12 +131,11 @@ export default function DebugOverlay() {
       const dx = e.clientX - drag.startX;
       const dy = e.clientY - drag.startY;
       if (Math.abs(dx) > 2 || Math.abs(dy) > 2) drag.moved = true;
-      const maxLeft = Math.max(8, window.innerWidth - drag.width - 8);
-      const maxTop = Math.max(8, window.innerHeight - drag.height - 8);
-      const next = {
-        left: Math.min(maxLeft, Math.max(8, drag.startLeft + dx)),
-        top: Math.min(maxTop, Math.max(8, drag.startTop + dy)),
-      };
+      const next = toRelativeDebugPosition(
+        { left: drag.startLeft + dx, top: drag.startTop + dy },
+        { width: drag.width, height: drag.height },
+        { width: window.innerWidth, height: window.innerHeight },
+      );
       coordsRef.current = next;
       setCoords(next);
     };
@@ -153,6 +247,15 @@ export default function DebugOverlay() {
   return (
     <aside
       ref={containerRef}
+      onKeyDown={(e) =>
+        handleContainerArrowKeyDown(e, {
+          orientation: "both",
+          onEscape: () => {
+            closeDebug();
+            focusMapViewport();
+          },
+        })
+      }
       className={`pointer-events-auto fixed ${positionClass} z-40 flex max-h-[calc(100vh-2rem)] max-w-[min(28rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white/95 font-mono text-slate-800 shadow-2xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 ${
         settings.fontSize === "medium" ? "text-xs" : "text-[11px]"
       }`}

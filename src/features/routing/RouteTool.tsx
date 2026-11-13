@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useMapStore } from "../../store/mapStore";
 import { usePersistedBool } from "../settings/model/persistedUiState";
+import { focusFirstNavigable, focusMapViewport, handleContainerArrowKeyDown } from "../../shared/keyboardNavigation";
 import {
   calculateRoute,
   formatRouteDistance,
@@ -68,6 +69,28 @@ export default function RouteTool() {
   useEffect(() => {
     setInputs(routePoints.map((p) => p?.label ?? ""));
   }, [routePoints]);
+
+  // Suljetaan hakutuloslista tai koko reitinhaku Esc-näppäimellä myös silloin,
+  // kun kohdistus on kartalla tai työkalupalkissa.
+  useEffect(() => {
+    if (tool !== "route") return;
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (document.querySelector('[aria-modal="true"], [data-shortcut-capturing="true"]')) return;
+      if (activeSearchIdx !== null) {
+        event.preventDefault();
+        setActiveSearchIdx(null);
+        setMarkerHits([]);
+        setSearchResults([]);
+        return;
+      }
+      event.preventDefault();
+      useMapStore.setState({ tool: "none", routePickTarget: null });
+      focusMapViewport();
+    };
+    window.addEventListener("keydown", onWindowKeyDown);
+    return () => window.removeEventListener("keydown", onWindowKeyDown);
+  }, [tool, activeSearchIdx]);
 
   // Lasketaan reitti automaattisesti, kun kaikki pisteet on asetettu
   useEffect(() => {
@@ -215,6 +238,15 @@ export default function RouteTool() {
 
   return (
     <div
+      onKeyDown={(e) =>
+        handleContainerArrowKeyDown(e, {
+          orientation: "both",
+          onEscape: () => {
+            useMapStore.setState({ tool: "none", routePickTarget: null });
+            focusMapViewport();
+          },
+        })
+      }
       className="absolute right-2 top-14 z-30 flex max-h-[calc(100vh-5rem)] w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white/95 text-xs text-slate-800 shadow-2xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 sm:right-3"
       style={{ opacity: overlayOpacity }}
     >
@@ -304,10 +336,24 @@ export default function RouteTool() {
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void runSearch(idx, inputs[idx] ?? "");
+                    if (e.key === "ArrowDown" && activeSearchIdx === idx) {
+                      const resultsEl = e.currentTarget.closest(".space-y-1.5, div")?.parentElement?.querySelector<HTMLElement>(
+                        `[data-route-results="${idx}"]`,
+                      );
+                      if (resultsEl) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        focusFirstNavigable(resultsEl);
+                      }
+                    }
                     if (e.key === "Escape") {
-                      setActiveSearchIdx(null);
-                      setMarkerHits([]);
-                      setSearchResults([]);
+                      if (activeSearchIdx !== null) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setActiveSearchIdx(null);
+                        setMarkerHits([]);
+                        setSearchResults([]);
+                      }
                     }
                   }}
                   className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
@@ -337,7 +383,19 @@ export default function RouteTool() {
               </div>
 
               {activeSearchIdx === idx && (markerHits.length > 0 || searchResults.length > 0 || searching) && (
-                <div className="mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+                <div
+                  data-route-results={idx}
+                  onKeyDown={(e) =>
+                    handleContainerArrowKeyDown(e, {
+                      onEscape: () => {
+                        setActiveSearchIdx(null);
+                        setMarkerHits([]);
+                        setSearchResults([]);
+                      },
+                    })
+                  }
+                  className="mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+                >
                   <div className="max-h-40 overflow-y-auto">
                   {searching && (
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-slate-500">

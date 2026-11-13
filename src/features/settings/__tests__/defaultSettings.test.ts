@@ -20,6 +20,10 @@ describe("settings color and interaction defaults", () => {
     expect(SETTING_VALUE_KEYS).toContain("unsavedMarkerColor");
     expect(SETTING_VALUE_KEYS).toContain("savedMeasurementColor");
     expect(SETTING_VALUE_KEYS).toContain("unsavedMeasurementColor");
+    expect(DEFAULT_SETTINGS.keyboardShortcutsEnabled).toBe("1");
+    expect(DEFAULT_SETTINGS.keyboardShortcuts).toBe("");
+    expect(SETTING_VALUE_KEYS).toContain("keyboardShortcutsEnabled");
+    expect(SETTING_VALUE_KEYS).toContain("keyboardShortcuts");
     expect(SETTING_TOGGLES.map(([key]) => key)).toContain("removePendingMarkerOnDblClick");
   });
 });

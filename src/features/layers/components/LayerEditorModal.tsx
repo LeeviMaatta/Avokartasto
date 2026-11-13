@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { LocalSource } from "../../../infrastructure/tauriBridge";
 import type { LayerViewDraft } from "../model/layerViewTypes";
+import { focusFirstNavigable, focusMapViewport, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 
 interface LayerEditorModalProps {
   editDraft: LocalSource | null;
@@ -27,22 +28,41 @@ export default function LayerEditorModal({
   onSaveSource,
   onSaveLayer,
 }: LayerEditorModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const isOpen = Boolean(editDraft || editLayer);
+
+  const handleClose = () => {
+    onClose();
+    requestAnimationFrame(() => focusMapViewport());
+  };
+
   useEffect(() => {
-    if (!editDraft && !editLayer) return;
+    if (!isOpen) return;
+    requestAnimationFrame(() => focusFirstNavigable(dialogRef.current));
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") handleClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editDraft, editLayer, onClose]);
+  }, [isOpen, onClose]);
 
-  if (!editDraft && !editLayer) return null;
+  if (!isOpen) return null;
 
   const isDefault = Boolean(editLayer || editDraft?.is_default);
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="flex max-h-[calc(100vh-2rem)] w-[calc(100vw-1rem)] max-w-lg flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-sm text-slate-800 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-white">
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs" onMouseDown={(event) => event.target === event.currentTarget && handleClose()}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        className="flex max-h-[calc(100vh-2rem)] w-[calc(100vw-1rem)] max-w-lg flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-sm text-slate-800 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-white"
+        onKeyDown={(e) => handleContainerArrowKeyDown(e, { onEscape: handleClose })}
+      >
         <div className="overflow-x-hidden overflow-y-auto p-4 sm:p-5">
         <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3 dark:border-zinc-800">
           <div>

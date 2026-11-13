@@ -69,4 +69,6 @@ export const DEFAULT_SETTINGS: Settings = {
   copernicusRangeEnd: "08-31",
   copernicusRangeYear: String(new Date().getFullYear()),
   copernicusRangeSelectedDate: "",
+  keyboardShortcutsEnabled: "1",
+  keyboardShortcuts: "",
 };

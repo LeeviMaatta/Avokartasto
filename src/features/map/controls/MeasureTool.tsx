@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Download, Save, X, Trash2, MapPin, Pencil } from "lucide-react";
 import GeoJSON from "ol/format/GeoJSON";
 import Polygon from "ol/geom/Polygon";
@@ -10,6 +10,7 @@ import { exportMeasurement as saveMeasurementFile } from "../../measurements/dom
 import { formatArea, formatDistance } from "../../measurements/domain/measurementFormatting";
 import MarkerEditor, { type MarkerDraft, type MarkerFolder } from "../../measurements/components/MarkerEditor";
 import { resolveNearestPlaceName } from "../sources/reverseGeocode";
+import { focusMapViewport, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 
 const emptyMarkerDraft = (geojson: string, folderId = ""): MarkerDraft => ({
   title: "",
@@ -178,6 +179,63 @@ export default function MeasureTool() {
     useMapStore.setState({ pendingMarker: null, markerEditorOpen: false });
   };
 
+  const resetActiveMeasurementState = (closeTool = false) => {
+    useMapStore.setState({
+      ...(closeTool ? { tool: "none" as const } : {}),
+      measure: null,
+      profile: null,
+      profileVisible: false,
+      profileError: null,
+      editingFeatureId: null,
+      activeUnsavedMeasurementId: null,
+      selectedFeature: null,
+    });
+    setMsg("");
+    setTitle("");
+  };
+
+  const closeMeasureTool = () => {
+    if (editingFeatureId !== null) {
+      window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId: editingFeatureId } }));
+    }
+    resetActiveMeasurementState(true);
+  };
+
+  const escapeActionRef = useRef<(() => void) | null>(null);
+  if (markerDraft && tool !== "measure") {
+    escapeActionRef.current = () => {
+      cancelMarkerEdit();
+      focusMapViewport();
+    };
+  } else if (selectedFeature?.kind === "marker" && tool !== "measure") {
+    escapeActionRef.current = () => {
+      useMapStore.setState({ selectedFeature: null });
+      focusMapViewport();
+    };
+  } else if (tool === "measure" || Boolean(selectedFeature) || Boolean(activeUnsavedMeasurementId)) {
+    escapeActionRef.current = () => {
+      closeMeasureTool();
+      focusMapViewport();
+    };
+  } else {
+    escapeActionRef.current = null;
+  }
+
+  const hasEscapeTarget = Boolean(escapeActionRef.current);
+  useEffect(() => {
+    if (!hasEscapeTarget) return;
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (document.querySelector('[aria-modal="true"], [data-shortcut-capturing="true"]')) return;
+      const action = escapeActionRef.current;
+      if (!action) return;
+      event.preventDefault();
+      action();
+    };
+    window.addEventListener("keydown", onWindowKeyDown);
+    return () => window.removeEventListener("keydown", onWindowKeyDown);
+  }, [hasEscapeTarget]);
+
   const deleteMarker = async () => {
     if (!markerDraft) return;
     if (markerDraft.id !== undefined) {
@@ -223,7 +281,11 @@ export default function MeasureTool() {
 
   if (selectedFeature?.kind === "marker" && tool !== "measure") {
     return (
-      <div className="absolute left-2 right-2 top-16 sm:top-20 z-10 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs sm:text-sm text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:flex-nowrap sm:px-4" style={{ opacity: overlayOpacity }}>
+      <div
+        onKeyDown={(e) => handleContainerArrowKeyDown(e, { orientation: "horizontal", onEscape: () => { useMapStore.setState({ selectedFeature: null }); focusMapViewport(); } })}
+        className="absolute left-2 right-2 top-16 sm:top-20 z-10 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs sm:text-sm text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:flex-nowrap sm:px-4"
+        style={{ opacity: overlayOpacity }}
+      >
         <span className="flex items-center gap-1.5 font-semibold text-slate-900 dark:text-white"><MapPin size={16} style={{ color: savedMarkerColor }} /> Merkki</span>
         <span className="max-w-48 truncate font-medium">{selectedFeature.title}</span>
         <button className="flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100 dark:border-zinc-700 dark:hover:bg-zinc-800 transition" onClick={() => {
@@ -289,21 +351,6 @@ export default function MeasureTool() {
     }
   };
 
-  const resetActiveMeasurementState = (closeTool = false) => {
-    useMapStore.setState({
-      ...(closeTool ? { tool: "none" as const } : {}),
-      measure: null,
-      profile: null,
-      profileVisible: false,
-      profileError: null,
-      editingFeatureId: null,
-      activeUnsavedMeasurementId: null,
-      selectedFeature: null,
-    });
-    setMsg("");
-    setTitle("");
-  };
-
   const deleteCurrentMeasurement = async () => {
     if (editingFeatureId !== null) {
       const label = title.trim() || selectedFeature?.title || "Mittaus";
@@ -317,13 +364,6 @@ export default function MeasureTool() {
     resetActiveMeasurementState(false);
   };
 
-  const closeMeasureTool = () => {
-    if (editingFeatureId !== null) {
-      window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId: editingFeatureId } }));
-    }
-    resetActiveMeasurementState(true);
-  };
-
   const chooseType = (nextType: "distance" | "area") => {
     if (editingFeatureId !== null) {
       window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId: editingFeatureId } }));
@@ -333,7 +373,11 @@ export default function MeasureTool() {
   };
 
   return (
-    <div className="absolute left-2 right-2 top-16 sm:top-20 z-10 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs sm:text-sm text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 sm:left-1/2 sm:right-auto sm:max-w-[min(96vw,56rem)] sm:-translate-x-1/2 sm:gap-2.5 sm:px-4" style={{ opacity: overlayOpacity }}>
+    <div
+      onKeyDown={(e) => handleContainerArrowKeyDown(e, { orientation: "horizontal", onEscape: () => { closeMeasureTool(); focusMapViewport(); } })}
+      className="absolute left-2 right-2 top-16 sm:top-20 z-10 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs sm:text-sm text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 sm:left-1/2 sm:right-auto sm:max-w-[min(96vw,56rem)] sm:-translate-x-1/2 sm:gap-2.5 sm:px-4"
+      style={{ opacity: overlayOpacity }}
+    >
       <span className="whitespace-nowrap font-semibold text-slate-900 dark:text-white">{selectedFeature?.title ? `Mittaus: ${selectedFeature.title}` : "Mittaus"}</span>
       {!measure && (
         <>
