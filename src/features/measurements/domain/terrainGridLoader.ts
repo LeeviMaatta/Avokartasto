@@ -18,6 +18,7 @@ import {
 } from "./terrainRouting";
 import {
   assembleMultipolygonRings,
+  classifyWetlandFlags,
   executeTerrainRouteCompute,
   rasterizeOverpassElementsToGrid,
   rasterizeVectorObstaclesToGrid,
@@ -34,6 +35,7 @@ import type { TerrainWorkerRequest, TerrainWorkerResponse } from "./terrainWorke
 
 export {
   assembleMultipolygonRings,
+  classifyWetlandFlags,
   rasterizeOverpassElementsToGrid,
   rasterizeVectorObstaclesToGrid,
   type OverpassElement,
@@ -77,6 +79,8 @@ const WETLAND_SUBCLASSES = new Set([
   "string_bog",
   "palsa_bog",
   "saltmarsh",
+  "mud",
+  "quagmire",
 ]);
 
 interface CachedOverpassEntry {
@@ -429,7 +433,7 @@ export function decodeMvtVectorTile(
     let isStream = false;
     if (layer === "landcover") {
       if (cls === "wetland" || WETLAND_SUBCLASSES.has(sub)) {
-        flag = TERRAIN_SWAMP;
+        flag = classifyWetlandFlags(sub);
       }
     } else if (layer === "water") {
       if (cls !== "swimming_pool") {

@@ -152,7 +152,7 @@ export default function MapContainer() {
       }
     };
     const handleOpenMeasurementEditor = (event: Event) => {
-      const detail = (event as CustomEvent<{ id: number; geojson: string }>).detail;
+      const detail = (event as CustomEvent<{ id: number; geojson: string; folder_id?: string | null }>).detail;
       if (!detail?.geojson) return;
       try {
         const geometry = new GeoJSON().readGeometry(JSON.parse(detail.geojson), {
@@ -160,9 +160,29 @@ export default function MapContainer() {
           featureProjection: "EPSG:3857",
         });
         clearSavedEditFeatures(measureSrc.current);
-        const editable = new Feature({ geometry });
-        editable.set("id", detail.id);
-        measureSrc.current.addFeature(editable);
+        const state = useMapStore.getState();
+        let isHidden = false;
+        try {
+          const hiddenIds: unknown = JSON.parse(state.settings.hiddenFeatures ?? "[]");
+          if (Array.isArray(hiddenIds) && hiddenIds.includes(detail.id)) isHidden = true;
+        } catch {
+          // Sivuutetaan virheellinen JSON
+        }
+        if (!isHidden && detail.folder_id) {
+          try {
+            const folders = JSON.parse(state.settings.markerFolders ?? "[]") as Array<{ id?: string; visible?: boolean }>;
+            if (Array.isArray(folders) && folders.some((folder) => folder?.id === detail.folder_id && folder.visible === false)) {
+              isHidden = true;
+            }
+          } catch {
+            // Sivuutetaan virheellinen JSON
+          }
+        }
+        if (!isHidden) {
+          const editable = new Feature({ geometry });
+          editable.set("id", detail.id);
+          measureSrc.current.addFeature(editable);
+        }
         if (geometry instanceof LineString) {
           void loadLineProfile(geometry);
         }

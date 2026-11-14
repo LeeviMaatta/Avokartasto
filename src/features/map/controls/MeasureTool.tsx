@@ -164,6 +164,16 @@ export default function MeasureTool() {
   }, []);
 
   useEffect(() => {
+    const onFeatureDeleted = (event: Event) => {
+      const deletedId = (event as CustomEvent<{ id?: number }>).detail?.id;
+      if (deletedId === undefined) return;
+      setMarkerDraft((prev) => (prev?.id === deletedId ? null : prev));
+    };
+    window.addEventListener("feature-deleted", onFeatureDeleted);
+    return () => window.removeEventListener("feature-deleted", onFeatureDeleted);
+  }, []);
+
+  useEffect(() => {
     if (!pendingMarker || tool === "measure") {
       setMarkerDraft((prev) => (prev && prev.id === undefined ? null : prev));
       return;

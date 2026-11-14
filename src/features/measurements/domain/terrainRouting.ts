@@ -1,6 +1,7 @@
 export const TERRAIN_NONE = 0;
 export const TERRAIN_SWAMP = 1 << 0;
 export const TERRAIN_WATER = 1 << 1;
+export const TERRAIN_SWAMP_WET = 1 << 2;
 
 export type TerrainRoutePreset = "min-climb" | "balanced";
 
@@ -136,24 +137,137 @@ class MinHeap {
 }
 
 export function resolveRoutingWeights(options: TerrainRouteOptions = {}): {
+  preset: TerrainRoutePreset;
   avoidSwamp: boolean;
   avoidWater: boolean;
   climbWeight: number;
   slopePenalty: number;
   swampMultiplier: number;
+  wetSwampMultiplier: number;
+  allowNarrowSwampCrossing: boolean;
   altitudeWeight: number;
 } {
   const preset = options.preset ?? "min-climb";
   const defaultClimbWeight = preset === "balanced" ? 10 : 30;
   const defaultSlopePenalty = preset === "balanced" ? 40 : 120;
   return {
+    preset,
     avoidSwamp: options.avoidSwamp ?? true,
     avoidWater: options.avoidWater ?? true,
     climbWeight: options.climbWeight ?? defaultClimbWeight,
     slopePenalty: options.slopePenalty ?? defaultSlopePenalty,
-    swampMultiplier: options.swampMultiplier ?? 40,
+    swampMultiplier: options.swampMultiplier ?? (preset === "balanced" ? 25 : 40),
+    wetSwampMultiplier: options.swampMultiplier ?? (preset === "balanced" ? 60 : 80),
+    allowNarrowSwampCrossing: preset === "balanced" && options.swampMultiplier === undefined,
     altitudeWeight: preset === "balanced" ? 0.6 : 1.5,
   };
+}
+
+const CROSSING_AXES: ReadonlyArray<readonly [number, number]> = [
+  [1, 0],
+  [0, 1],
+  [1, 1],
+  [1, -1],
+];
+
+function computeSwampCellMultipliers(
+  grid: TerrainGrid,
+  weights: ReturnType<typeof resolveRoutingWeights>,
+): Float32Array | null {
+  if (!weights.avoidSwamp) return null;
+
+  const total = grid.width * grid.height;
+  const mults = new Float32Array(total);
+  const cellStepM = Math.min(grid.stepX, grid.stepY) * grid.metersPerUnit;
+  const maxNarrowSpanCells = Math.max(3, Math.min(6, Math.round(80 / Math.max(1, cellStepM))));
+
+  const hasAdjacentWater = (cx: number, cy: number): boolean => {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 0 || nx >= grid.width || ny < 0 || ny >= grid.height) continue;
+        if ((grid.terrainFlags[ny * grid.width + nx] & TERRAIN_WATER) !== 0) return true;
+      }
+    }
+    return false;
+  };
+
+  const measureHalfAxisDryDist = (cx: number, cy: number, dx: number, dy: number): number => {
+    for (let step = 1; step <= maxNarrowSpanCells; step++) {
+      const nx = cx + dx * step;
+      const ny = cy + dy * step;
+      if (nx < 0 || nx >= grid.width || ny < 0 || ny >= grid.height) return Infinity;
+      const flags = grid.terrainFlags[ny * grid.width + nx];
+      if ((flags & (TERRAIN_WATER | TERRAIN_SWAMP_WET)) !== 0) return Infinity;
+      if ((flags & TERRAIN_SWAMP) === 0) return step;
+    }
+    return Infinity;
+  };
+
+  for (let y = 0; y < grid.height; y++) {
+    for (let x = 0; x < grid.width; x++) {
+      const idx = y * grid.width + x;
+      const flags = grid.terrainFlags[idx];
+      if ((flags & TERRAIN_SWAMP) === 0) continue;
+
+      if ((flags & TERRAIN_SWAMP_WET) !== 0 || (weights.avoidWater && hasAdjacentWater(x, y))) {
+        mults[idx] = weights.wetSwampMultiplier;
+        continue;
+      }
+
+      if (!weights.allowNarrowSwampCrossing) {
+        mults[idx] = weights.swampMultiplier;
+        continue;
+      }
+
+      let minSpan = Infinity;
+      for (let a = 0; a < CROSSING_AXES.length; a++) {
+        const [dx, dy] = CROSSING_AXES[a];
+        const px1 = x - dy;
+        const py1 = y + dx;
+        const px2 = x + dy;
+        const py2 = y - dx;
+        const perp1IsSwamp =
+          px1 >= 0 &&
+          px1 < grid.width &&
+          py1 >= 0 &&
+          py1 < grid.height &&
+          (grid.terrainFlags[py1 * grid.width + px1] & TERRAIN_SWAMP) !== 0;
+        const perp2IsSwamp =
+          px2 >= 0 &&
+          px2 < grid.width &&
+          py2 >= 0 &&
+          py2 < grid.height &&
+          (grid.terrainFlags[py2 * grid.width + px2] & TERRAIN_SWAMP) !== 0;
+        if (!perp1IsSwamp && !perp2IsSwamp) continue;
+
+        const fwd = measureHalfAxisDryDist(x, y, dx, dy);
+        if (!Number.isFinite(fwd)) continue;
+        const bwd = measureHalfAxisDryDist(x, y, -dx, -dy);
+        if (!Number.isFinite(bwd)) continue;
+        const span = fwd + bwd - 1;
+        if (span < minSpan) minSpan = span;
+      }
+
+      if (!Number.isFinite(minSpan) || minSpan > maxNarrowSpanCells) {
+        mults[idx] = weights.swampMultiplier;
+      } else if (minSpan <= 1) {
+        mults[idx] = 2.5;
+      } else if (minSpan === 2) {
+        mults[idx] = 3.2;
+      } else if (minSpan === 3) {
+        mults[idx] = 4.2;
+      } else if (minSpan === 4) {
+        mults[idx] = 5.5;
+      } else {
+        mults[idx] = 7.5;
+      }
+    }
+  }
+
+  return mults;
 }
 
 function computeGridElevationBounds(grid: TerrainGrid): {
@@ -208,6 +322,7 @@ function stepCost(
   minGridElev = 0,
   invElevRange = 0,
   waterPenaltyMultiplier = 500,
+  swampMultipliers: Float32Array | null = null,
 ): number {
   const toFlags = grid.terrainFlags[toIdx];
   const isWater = (toFlags & TERRAIN_WATER) !== 0;
@@ -219,7 +334,7 @@ function stepCost(
 
   let terrainMultiplier = 1;
   if (weights.avoidSwamp && (toFlags & TERRAIN_SWAMP) !== 0) {
-    terrainMultiplier = weights.swampMultiplier;
+    terrainMultiplier = swampMultipliers ? swampMultipliers[toIdx] : weights.swampMultiplier;
   }
 
   const elevA = grid.elevations[fromIdx];
@@ -272,6 +387,7 @@ export function findLowestClimbGridPath(
   if (startIdx === goalIdx) return [{ x: sx, y: sy }];
 
   const weights = resolveRoutingWeights(options);
+  const swampMultipliers = computeSwampCellMultipliers(grid, weights);
   const { minGridElev, invElevRange } = computeGridElevationBounds(grid);
   const startInWater = (grid.terrainFlags[startIdx] & TERRAIN_WATER) !== 0;
   const goalInWater = (grid.terrainFlags[goalIdx] & TERRAIN_WATER) !== 0;
@@ -328,6 +444,7 @@ export function findLowestClimbGridPath(
         minGridElev,
         invElevRange,
         waterPenaltyMultiplier,
+        swampMultipliers,
       );
       if (!Number.isFinite(cost)) return;
 
@@ -497,12 +614,16 @@ function chordCostOnGrid(
   weights: ReturnType<typeof resolveRoutingWeights>,
   minGridElev = 0,
   invElevRange = 0,
+  allowWetSwamp = false,
+  swampMultipliers: Float32Array | null = null,
 ): number {
   const gridSpan = Math.hypot(b.x - a.x, b.y - a.y);
   const substeps = Math.max(1, Math.ceil(gridSpan * 4));
   const totalDistM = cellDistanceM(grid, a.x, a.y, b.x, b.y);
   const stepDistM = totalDistM / substeps;
-  const startInSwamp = (grid.terrainFlags[a.y * grid.width + a.x] & TERRAIN_SWAMP) !== 0;
+  const startFlags = grid.terrainFlags[a.y * grid.width + a.x];
+  const startInSwamp = (startFlags & TERRAIN_SWAMP) !== 0;
+  const startInWetSwamp = (startFlags & TERRAIN_SWAMP_WET) !== 0;
   let totalCost = 0;
   let prevElev = sampleElevationBilinear(
     grid,
@@ -540,16 +661,28 @@ function chordCostOnGrid(
       return Infinity;
     }
 
+    if (
+      !isBaselineStep &&
+      weights.avoidSwamp &&
+      !allowWetSwamp &&
+      s < substeps &&
+      !startInWetSwamp &&
+      (quadFlags & TERRAIN_SWAMP_WET) !== 0
+    ) {
+      return Infinity;
+    }
+
     const rx = Math.max(0, Math.min(grid.width - 1, Math.round(gx)));
     const ry = Math.max(0, Math.min(grid.height - 1, Math.round(gy)));
-    const centerFlags = grid.terrainFlags[ry * grid.width + rx];
+    const centerIdx = ry * grid.width + rx;
+    const centerFlags = grid.terrainFlags[centerIdx];
 
     let terrainMultiplier = 1;
     if (weights.avoidWater && (centerFlags & TERRAIN_WATER) !== 0) {
       if (!isBaselineStep && !allowWater) return Infinity;
       terrainMultiplier = 500;
     } else if (weights.avoidSwamp && (centerFlags & TERRAIN_SWAMP) !== 0) {
-      terrainMultiplier = weights.swampMultiplier;
+      terrainMultiplier = swampMultipliers ? swampMultipliers[centerIdx] : weights.swampMultiplier;
     }
 
     const elev = sampleElevationBilinear(
@@ -594,33 +727,49 @@ function pruneRedundantVertices(
   weights: ReturnType<typeof resolveRoutingWeights>,
   minGridElev: number,
   invElevRange: number,
+  swampMultipliers: Float32Array | null = null,
 ): GridPoint[] {
   if (pts.length <= 2) return pts;
 
   const segCost = new Float64Array(pts.length);
   const swampPrefix = new Int32Array(pts.length);
-  swampPrefix[0] = (grid.terrainFlags[pts[0].y * grid.width + pts[0].x] & TERRAIN_SWAMP) !== 0 ? 1 : 0;
+  const wetSwampPrefix = new Int32Array(pts.length);
+  const firstFlags = grid.terrainFlags[pts[0].y * grid.width + pts[0].x];
+  swampPrefix[0] = (firstFlags & TERRAIN_SWAMP) !== 0 ? 1 : 0;
+  wetSwampPrefix[0] = (firstFlags & TERRAIN_SWAMP_WET) !== 0 ? 1 : 0;
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1];
     const b = pts[i];
+    const bFlags = grid.terrainFlags[b.y * grid.width + b.x];
     const allowWater =
       weights.avoidWater &&
-      (((grid.terrainFlags[a.y * grid.width + a.x] | grid.terrainFlags[b.y * grid.width + b.x]) &
-        TERRAIN_WATER) !==
-        0);
+      (((grid.terrainFlags[a.y * grid.width + a.x] | bFlags) & TERRAIN_WATER) !== 0);
     segCost[i] =
       segCost[i - 1] +
-      chordCostOnGrid(grid, a, b, allowWater, true, true, weights, minGridElev, invElevRange);
-    swampPrefix[i] =
-      swampPrefix[i - 1] +
-      ((grid.terrainFlags[b.y * grid.width + b.x] & TERRAIN_SWAMP) !== 0 ? 1 : 0);
+      chordCostOnGrid(
+        grid,
+        a,
+        b,
+        allowWater,
+        true,
+        true,
+        weights,
+        minGridElev,
+        invElevRange,
+        true,
+        swampMultipliers,
+      );
+    swampPrefix[i] = swampPrefix[i - 1] + ((bFlags & TERRAIN_SWAMP) !== 0 ? 1 : 0);
+    wetSwampPrefix[i] = wetSwampPrefix[i - 1] + ((bFlags & TERRAIN_SWAMP_WET) !== 0 ? 1 : 0);
   }
 
   const out: GridPoint[] = [pts[0]];
   let i = 0;
   while (i < pts.length - 1) {
     let bestJ = i + 1;
-    const iInSwamp = (grid.terrainFlags[pts[i].y * grid.width + pts[i].x] & TERRAIN_SWAMP) !== 0;
+    const iFlags = grid.terrainFlags[pts[i].y * grid.width + pts[i].x];
+    const iInSwamp = (iFlags & TERRAIN_SWAMP) !== 0;
+    const iInWetSwamp = (iFlags & TERRAIN_SWAMP_WET) !== 0;
 
     for (let j = pts.length - 1; j >= i + 2; j--) {
       let maxDev = 0;
@@ -632,6 +781,7 @@ function pruneRedundantVertices(
       if (maxDev > 1.15) continue;
 
       const allowSwamp = iInSwamp || swampPrefix[j] - swampPrefix[i] > 0;
+      const allowWetSwamp = iInWetSwamp || wetSwampPrefix[j] - wetSwampPrefix[i] > 0;
       const shortcutCost = chordCostOnGrid(
         grid,
         pts[i],
@@ -642,6 +792,8 @@ function pruneRedundantVertices(
         weights,
         minGridElev,
         invElevRange,
+        allowWetSwamp,
+        swampMultipliers,
       );
       if (!Number.isFinite(shortcutCost)) continue;
       const subCost = segCost[j] - segCost[i];
@@ -668,27 +820,43 @@ export function smoothGridPath(
 ): GridPoint[] {
   if (path.length <= 2) return path;
   const weights = resolveRoutingWeights(options);
+  const swampMultipliers = computeSwampCellMultipliers(grid, weights);
   const { minGridElev, invElevRange } = computeGridElevationBounds(grid);
   const n = path.length;
 
   const prefixCost = new Float64Array(n);
   const prefixSwamp = new Int32Array(n);
-  prefixSwamp[0] =
-    (grid.terrainFlags[path[0].y * grid.width + path[0].x] & TERRAIN_SWAMP) !== 0 ? 1 : 0;
+  const prefixWetSwamp = new Int32Array(n);
+  const firstSmoothFlags = grid.terrainFlags[path[0].y * grid.width + path[0].x];
+  prefixSwamp[0] = (firstSmoothFlags & TERRAIN_SWAMP) !== 0 ? 1 : 0;
+  prefixWetSwamp[0] = (firstSmoothFlags & TERRAIN_SWAMP_WET) !== 0 ? 1 : 0;
 
   for (let i = 1; i < n; i++) {
     const a = path[i - 1];
     const b = path[i];
     const aIdx = a.y * grid.width + a.x;
     const bIdx = b.y * grid.width + b.x;
+    const bFlags = grid.terrainFlags[bIdx];
     const allowWater =
       weights.avoidWater &&
-      (((grid.terrainFlags[aIdx] | grid.terrainFlags[bIdx]) & TERRAIN_WATER) !== 0);
+      (((grid.terrainFlags[aIdx] | bFlags) & TERRAIN_WATER) !== 0);
     prefixCost[i] =
       prefixCost[i - 1] +
-      chordCostOnGrid(grid, a, b, allowWater, true, true, weights, minGridElev, invElevRange);
-    prefixSwamp[i] =
-      prefixSwamp[i - 1] + ((grid.terrainFlags[bIdx] & TERRAIN_SWAMP) !== 0 ? 1 : 0);
+      chordCostOnGrid(
+        grid,
+        a,
+        b,
+        allowWater,
+        true,
+        true,
+        weights,
+        minGridElev,
+        invElevRange,
+        true,
+        swampMultipliers,
+      );
+    prefixSwamp[i] = prefixSwamp[i - 1] + ((bFlags & TERRAIN_SWAMP) !== 0 ? 1 : 0);
+    prefixWetSwamp[i] = prefixWetSwamp[i - 1] + ((bFlags & TERRAIN_SWAMP_WET) !== 0 ? 1 : 0);
   }
 
   const dpCost = new Float64Array(n);
@@ -709,10 +877,13 @@ export function smoothGridPath(
       dpPrev[i + 1] = i;
     }
 
-    const iInSwamp = (grid.terrainFlags[path[i].y * grid.width + path[i].x] & TERRAIN_SWAMP) !== 0;
+    const iFlags = grid.terrainFlags[path[i].y * grid.width + path[i].x];
+    const iInSwamp = (iFlags & TERRAIN_SWAMP) !== 0;
+    const iInWetSwamp = (iFlags & TERRAIN_SWAMP_WET) !== 0;
     const maxCand = Math.min(n - 1, i + 160);
     for (let cand = i + 2; cand <= maxCand; cand++) {
       const allowSwamp = iInSwamp || prefixSwamp[cand] - prefixSwamp[i] > 0;
+      const allowWetSwamp = iInWetSwamp || prefixWetSwamp[cand] - prefixWetSwamp[i] > 0;
       const shortcutCost = chordCostOnGrid(
         grid,
         path[i],
@@ -723,6 +894,8 @@ export function smoothGridPath(
         weights,
         minGridElev,
         invElevRange,
+        allowWetSwamp,
+        swampMultipliers,
       );
       if (!Number.isFinite(shortcutCost)) continue;
       const origCost = prefixCost[cand] - prefixCost[i];
@@ -747,7 +920,7 @@ export function smoothGridPath(
     return path;
   }
   smoothedRev.reverse();
-  return pruneRedundantVertices(grid, smoothedRev, weights, minGridElev, invElevRange);
+  return pruneRedundantVertices(grid, smoothedRev, weights, minGridElev, invElevRange, swampMultipliers);
 }
 
 export function sampleElevationBilinear(grid: TerrainGrid, x: number, y: number): number {

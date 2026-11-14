@@ -3,6 +3,7 @@ import { fromLonLat } from "ol/proj";
 import {
   TERRAIN_NONE,
   TERRAIN_SWAMP,
+  TERRAIN_SWAMP_WET,
   TERRAIN_WATER,
   gridCellToMercator,
   mercatorToGridCell,
@@ -10,6 +11,7 @@ import {
   type TerrainGrid,
 } from "../terrainRouting";
 import {
+  classifyWetlandFlags,
   computeTerrainGridSpec,
   decodeTerrariumRgb,
   rasterizeOverpassElementsToGrid,
@@ -381,5 +383,140 @@ describe("terrainGridLoader helpers", () => {
 
     // Lähes suoran 65 ruudun matkan ei tule sisältää kymmeniä välipisteitä
     expect(res.coordinatesMercator.length).toBeLessThanOrEqual(5);
+  });
+
+  it("crosses a narrow swamp neck in balanced mode instead of making a long detour, while min-climb detours", () => {
+    // Suoalue y=2..22, leveä (x=8..17) paitsi kapeassa kuroumassa y=12 (x=12..13)
+    const grid = createTestGrid(
+      26,
+      25,
+      20,
+      () => 15,
+      (x, y) => {
+        if (y < 2 || y > 22) return TERRAIN_NONE;
+        if (y === 12) return x >= 12 && x <= 13 ? TERRAIN_SWAMP : TERRAIN_NONE;
+        return x >= 8 && x <= 17 ? TERRAIN_SWAMP : TERRAIN_NONE;
+      },
+    );
+
+    const start = gridCellToMercator(grid, { x: 4, y: 12 });
+    const goal = gridCellToMercator(grid, { x: 21, y: 12 });
+
+    const balanced = routeMercatorWaypointsOnGrid(grid, [start, goal], {
+      preset: "balanced",
+      avoidSwamp: true,
+      avoidWater: true,
+    });
+    const balancedYs = balanced.coordinatesMercator.map((pt) => mercatorToGridCell(grid, pt[0], pt[1]).y);
+    expect(Math.min(...balancedYs)).toBeGreaterThanOrEqual(11);
+    expect(Math.max(...balancedYs)).toBeLessThanOrEqual(13);
+    expect(balanced.stats.routedLengthM).toBeLessThan(balanced.stats.originalLengthM + 20);
+
+    const minClimb = routeMercatorWaypointsOnGrid(grid, [start, goal], {
+      preset: "min-climb",
+      avoidSwamp: true,
+      avoidWater: true,
+    });
+    const minClimbYs = minClimb.coordinatesMercator.map((pt) => mercatorToGridCell(grid, pt[0], pt[1]).y);
+    expect(Math.min(...minClimbYs) < 2 || Math.max(...minClimbYs) > 22).toBe(true);
+    expect(minClimb.stats.routedLengthM).toBeGreaterThan(balanced.stats.routedLengthM * 1.3);
+  });
+
+  it("detours around even a narrow swamp neck in balanced mode when the swamp is marked wettest", () => {
+    const grid = createTestGrid(
+      26,
+      25,
+      20,
+      () => 15,
+      (x, y) => {
+        if (y < 2 || y > 22) return TERRAIN_NONE;
+        if (y === 12) {
+          return x >= 12 && x <= 13 ? TERRAIN_SWAMP | TERRAIN_SWAMP_WET : TERRAIN_NONE;
+        }
+        return x >= 8 && x <= 17 ? TERRAIN_SWAMP : TERRAIN_NONE;
+      },
+    );
+
+    const start = gridCellToMercator(grid, { x: 4, y: 12 });
+    const goal = gridCellToMercator(grid, { x: 21, y: 12 });
+
+    const balancedWet = routeMercatorWaypointsOnGrid(grid, [start, goal], {
+      preset: "balanced",
+      avoidSwamp: true,
+      avoidWater: true,
+    });
+    const ys = balancedWet.coordinatesMercator.map((pt) => mercatorToGridCell(grid, pt[0], pt[1]).y);
+    expect(Math.min(...ys) < 2 || Math.max(...ys) > 22).toBe(true);
+    const touchedWet = balancedWet.coordinatesMercator.some((pt) => {
+      const c = mercatorToGridCell(grid, pt[0], pt[1]);
+      return (grid.terrainFlags[c.y * grid.width + c.x] & TERRAIN_SWAMP_WET) !== 0;
+    });
+    expect(touchedWet).toBe(false);
+  });
+
+  it("classifies wet wetland subtypes with TERRAIN_SWAMP_WET and firmer subtypes with TERRAIN_SWAMP", () => {
+    expect(classifyWetlandFlags("marsh")).toBe(TERRAIN_SWAMP | TERRAIN_SWAMP_WET);
+    expect(classifyWetlandFlags("reedbed")).toBe(TERRAIN_SWAMP | TERRAIN_SWAMP_WET);
+    expect(classifyWetlandFlags("string_bog")).toBe(TERRAIN_SWAMP | TERRAIN_SWAMP_WET);
+    expect(classifyWetlandFlags("fen")).toBe(TERRAIN_SWAMP | TERRAIN_SWAMP_WET);
+
+    expect(classifyWetlandFlags("bog")).toBe(TERRAIN_SWAMP);
+    expect(classifyWetlandFlags("swamp")).toBe(TERRAIN_SWAMP);
+    expect(classifyWetlandFlags("wet_meadow")).toBe(TERRAIN_SWAMP);
+    expect(classifyWetlandFlags(undefined)).toBe(TERRAIN_SWAMP);
+
+    const sw = fromLonLat([25.0, 60.2]) as [number, number];
+    const ne = fromLonLat([25.02, 60.21]) as [number, number];
+    const spec = computeTerrainGridSpec([sw, ne]);
+    const grid: TerrainGrid = {
+      width: spec.width,
+      height: spec.height,
+      minX: spec.minX,
+      minY: spec.minY,
+      stepX: spec.stepX,
+      stepY: spec.stepY,
+      metersPerUnit: spec.metersPerUnit,
+      elevations: new Float32Array(spec.width * spec.height),
+      terrainFlags: new Uint8Array(spec.width * spec.height),
+    };
+
+    const elements: OverpassElement[] = [
+      {
+        type: "way",
+        id: 10,
+        tags: { natural: "wetland", wetland: "marsh" },
+        geometry: [
+          { lat: 60.202, lon: 25.002 },
+          { lat: 60.202, lon: 25.007 },
+          { lat: 60.206, lon: 25.007 },
+          { lat: 60.206, lon: 25.002 },
+          { lat: 60.202, lon: 25.002 },
+        ],
+      },
+      {
+        type: "way",
+        id: 11,
+        tags: { natural: "wetland", wetland: "bog" },
+        geometry: [
+          { lat: 60.202, lon: 25.012 },
+          { lat: 60.202, lon: 25.017 },
+          { lat: 60.206, lon: 25.017 },
+          { lat: 60.206, lon: 25.012 },
+          { lat: 60.202, lon: 25.012 },
+        ],
+      },
+    ];
+
+    rasterizeOverpassElementsToGrid(grid, elements, true, true, false);
+
+    const marshPt = fromLonLat([25.0045, 60.204]);
+    const marshCell = mercatorToGridCell(grid, marshPt[0], marshPt[1]);
+    expect(grid.terrainFlags[marshCell.y * grid.width + marshCell.x]).toBe(
+      TERRAIN_SWAMP | TERRAIN_SWAMP_WET,
+    );
+
+    const bogPt = fromLonLat([25.0145, 60.204]);
+    const bogCell = mercatorToGridCell(grid, bogPt[0], bogPt[1]);
+    expect(grid.terrainFlags[bogCell.y * grid.width + bogCell.x]).toBe(TERRAIN_SWAMP);
   });
 });

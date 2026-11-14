@@ -623,6 +623,22 @@ export default function LayerSwitcher() {
     if (await requestConfirmation(`Haluatko varmasti poistaa merkinnän "${feature.title}"?`)) {
       await deleteFeature(feature.id);
       bumpFeatures();
+      const state = useMapStore.getState();
+      if (state.editingFeatureId === feature.id) {
+        window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId: feature.id } }));
+        useMapStore.setState({
+          measure: null,
+          profile: null,
+          profileVisible: false,
+          profileError: null,
+          editingFeatureId: null,
+          activeUnsavedMeasurementId: null,
+          selectedFeature: null,
+        });
+      } else if (state.selectedFeature?.id === feature.id) {
+        useMapStore.setState({ selectedFeature: null });
+      }
+      window.dispatchEvent(new CustomEvent("feature-deleted", { detail: { id: feature.id } }));
     }
   };
 

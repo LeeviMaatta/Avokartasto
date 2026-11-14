@@ -4,6 +4,7 @@ import { fromLonLat, toLonLat } from "ol/proj";
 import { getLength } from "ol/sphere";
 import {
   TERRAIN_SWAMP,
+  TERRAIN_SWAMP_WET,
   TERRAIN_WATER,
   routeMercatorWaypointsOnGrid,
   sampleElevationBilinear,
@@ -293,13 +294,40 @@ function rasterizePolyline(grid: TerrainGrid, coords: [number, number][], flag: 
   }
 }
 
+const WET_SWAMP_SUBTYPES = new Set([
+  "marsh",
+  "reedbed",
+  "string_bog",
+  "fen",
+  "tidalflat",
+  "mangrove",
+  "saltmarsh",
+  "mud",
+  "quagmire",
+]);
+
+export function classifyWetlandFlags(
+  subclassOrType?: string | null,
+  tags?: Record<string, string>,
+): number {
+  const subtype = typeof subclassOrType === "string" ? subclassOrType.toLowerCase() : "";
+  if (
+    WET_SWAMP_SUBTYPES.has(subtype) ||
+    tags?.natural === "mud" ||
+    tags?.waterlogged === "yes"
+  ) {
+    return TERRAIN_SWAMP | TERRAIN_SWAMP_WET;
+  }
+  return TERRAIN_SWAMP;
+}
+
 function classifyElementFlag(
   tags: Record<string, string> | undefined,
   includeStreams: boolean,
 ): number {
   if (!tags) return 0;
-  if (tags.natural === "wetland" || typeof tags.wetland === "string") {
-    return TERRAIN_SWAMP;
+  if (tags.natural === "wetland" || typeof tags.wetland === "string" || tags.natural === "mud") {
+    return classifyWetlandFlags(tags.wetland ?? (tags.natural === "mud" ? "mud" : undefined), tags);
   }
   if (tags.waterway === "stream") {
     return includeStreams ? TERRAIN_WATER : 0;
@@ -333,14 +361,16 @@ export function rasterizeOverpassElementsToGrid(
   for (const el of elements) {
     const flag = classifyElementFlag(el.tags, includeStreams);
     if (flag === 0) continue;
-    if (flag === TERRAIN_SWAMP && !includeSwamp) continue;
-    if (flag === TERRAIN_WATER && !includeWater) continue;
+    const isSwamp = (flag & TERRAIN_SWAMP) !== 0;
+    const isWater = (flag & TERRAIN_WATER) !== 0;
+    if (isSwamp && !includeSwamp) continue;
+    if (isWater && !includeWater) continue;
 
     if (el.type === "way" && Array.isArray(el.geometry) && el.geometry.length >= 2) {
       const ring = toMercatorRing(el.geometry);
       const isArea =
         ring.length >= 4 &&
-        (pointsClose(ring[0], ring[ring.length - 1]) || flag === TERRAIN_SWAMP || el.tags?.natural === "water");
+        (pointsClose(ring[0], ring[ring.length - 1]) || isSwamp || el.tags?.natural === "water");
       if (isArea) {
         if (!pointsClose(ring[0], ring[ring.length - 1])) ring.push(ring[0]);
         rasterizePolygonWithHoles(grid, [ring], [], flag);
@@ -376,18 +406,18 @@ export function rasterizeVectorObstaclesToGrid(
 ): void {
   for (let i = 0; i < polygons.length; i++) {
     const poly = polygons[i];
-    if (poly.flag === TERRAIN_SWAMP && !includeSwamp) continue;
-    if (poly.flag === TERRAIN_WATER && !includeWater) continue;
+    if ((poly.flag & TERRAIN_SWAMP) !== 0 && !includeSwamp) continue;
+    if ((poly.flag & TERRAIN_WATER) !== 0 && !includeWater) continue;
     if (poly.rings.length === 0) continue;
     rasterizePolygonWithHoles(grid, [poly.rings[0]], poly.rings.slice(1), poly.flag);
   }
 
   for (let i = 0; i < polylines.length; i++) {
     const line = polylines[i];
-    if (line.flag === TERRAIN_WATER) {
+    if ((line.flag & TERRAIN_WATER) !== 0) {
       if (!includeWater) continue;
       if (line.isStream && !includeStreams) continue;
-    } else if (line.flag === TERRAIN_SWAMP && !includeSwamp) {
+    } else if ((line.flag & TERRAIN_SWAMP) !== 0 && !includeSwamp) {
       continue;
     }
     if (line.coords.length >= 2) {
