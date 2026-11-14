@@ -1,63 +1,17 @@
 import { fetchWithDebug } from "../../debug/services/debugFetch";
+import type { RouteMode, RoutePoint, RouteResult, RouteStep } from "../model/routeTypes";
+import { decodePolyline } from "./polylineDecoder";
+import { formatOsrmStep, formatRouteDistance, formatRouteDuration } from "./routeFormatting";
 
-export type RouteMode = "auto" | "bicycle" | "pedestrian";
-
-export interface RoutePoint {
-  coord: [number, number]; // [lon, lat]
-  label: string;
-}
-
-export interface RouteStep {
-  instruction: string;
-  distance: number; // meters
-  duration: number; // seconds
-  coord: [number, number]; // [lon, lat]
-}
-
-export interface RouteResult {
-  provider: "Valhalla" | "OSRM";
-  mode: RouteMode;
-  coordinates: [number, number][]; // [lon, lat][]
-  distance: number; // meters
-  duration: number; // seconds
-  steps: RouteStep[];
-}
-
-/**
- * Purkaa Valhallan (precision=6) tai Googlen (precision=5) polyline-merkkijonon
- * muodossa [lon, lat][].
- */
-export function decodePolyline(encoded: string, precision = 6): [number, number][] {
-  const factor = Math.pow(10, precision);
-  const coords: [number, number][] = [];
-  let index = 0;
-  let lat = 0;
-  let lon = 0;
-
-  while (index < encoded.length) {
-    let shift = 0;
-    let result = 0;
-    let byte = 0;
-    do {
-      byte = encoded.charCodeAt(index++) - 63;
-      result |= (byte & 0x1f) << shift;
-      shift += 5;
-    } while (byte >= 0x20);
-    lat += result & 1 ? ~(result >> 1) : result >> 1;
-
-    shift = 0;
-    result = 0;
-    do {
-      byte = encoded.charCodeAt(index++) - 63;
-      result |= (byte & 0x1f) << shift;
-      shift += 5;
-    } while (byte >= 0x20);
-    lon += result & 1 ? ~(result >> 1) : result >> 1;
-
-    coords.push([lon / factor, lat / factor]);
-  }
-  return coords;
-}
+export {
+  decodePolyline,
+  formatRouteDistance,
+  formatRouteDuration,
+  type RouteMode,
+  type RoutePoint,
+  type RouteResult,
+  type RouteStep,
+};
 
 async function fetchValhallaRoute(
   points: RoutePoint[],
@@ -67,10 +21,7 @@ async function fetchValhallaRoute(
   const body = {
     locations: points.map((p) => ({ lon: p.coord[0], lat: p.coord[1] })),
     costing: mode,
-    directions_options: {
-      units: "kilometers",
-      language: "fi-FI",
-    },
+    directions_options: { units: "kilometers", language: "fi-FI" },
   };
 
   const r = await fetchWithDebug(
@@ -83,10 +34,7 @@ async function fetchValhallaRoute(
     },
     "route-valhalla",
   );
-
-  if (!r.ok) {
-    throw new Error(`Valhalla HTTP ${r.status}`);
-  }
+  if (!r.ok) throw new Error(`Valhalla HTTP ${r.status}`);
 
   const data = (await r.json()) as {
     trip?: {
@@ -110,15 +58,11 @@ async function fetchValhallaRoute(
 
   const allCoords: [number, number][] = [];
   const steps: RouteStep[] = [];
-
   for (const leg of legs) {
     const legCoords = leg.shape ? decodePolyline(leg.shape, 6) : [];
     const offset = allCoords.length;
-    if (offset > 0 && legCoords.length > 0) {
-      allCoords.push(...legCoords.slice(1));
-    } else {
-      allCoords.push(...legCoords);
-    }
+    if (offset > 0 && legCoords.length > 0) allCoords.push(...legCoords.slice(1));
+    else allCoords.push(...legCoords);
 
     for (const m of leg.maneuvers ?? []) {
       const idx = Math.min(Math.max(0, m.begin_shape_index ?? 0), Math.max(0, legCoords.length - 1));
@@ -132,9 +76,7 @@ async function fetchValhallaRoute(
     }
   }
 
-  if (allCoords.length < 2) {
-    throw new Error("Reitin geometria puuttuu");
-  }
+  if (allCoords.length < 2) throw new Error("Reitin geometria puuttuu");
 
   return {
     provider: "Valhalla",
@@ -144,34 +86,6 @@ async function fetchValhallaRoute(
     duration: data.trip?.summary?.time ?? 0,
     steps,
   };
-}
-
-function formatOsrmStep(step: {
-  maneuver?: { type?: string; modifier?: string; location?: [number, number] };
-  name?: string;
-  distance?: number;
-  duration?: number;
-}): string {
-  const type = step.maneuver?.type ?? "";
-  const mod = step.maneuver?.modifier ?? "";
-  const road = step.name ? ` tielle ${step.name}` : "";
-
-  const modFi: Record<string, string> = {
-    left: "vasemmalle",
-    right: "oikealle",
-    "sharp left": "jyrkästi vasemmalle",
-    "sharp right": "jyrkästi oikealle",
-    "slight left": "loivasti vasemmalle",
-    "slight right": "loivasti oikealle",
-    straight: "suoraan",
-    uturn: "U-käännös",
-  };
-
-  if (type === "depart") return `Lähde liikkeelle${road}`;
-  if (type === "arrive") return "Saavut määränpäähän";
-  if (type === "roundabout" || type === "rotary") return `Aja kiertoliittymästä${road}`;
-  const dir = modFi[mod] ? ` ${modFi[mod]}` : "";
-  return `Käänny${dir}${road}`.trim();
 }
 
 async function fetchOsrmRoute(
@@ -184,12 +98,9 @@ async function fetchOsrmRoute(
   const url = `https://router.project-osrm.org/route/v1/${profile}/${coordsParam}?overview=full&geometries=geojson&steps=true`;
 
   const r = await fetchWithDebug(url, { signal }, "route-osrm");
-  if (!r.ok) {
-    throw new Error(`OSRM HTTP ${r.status}`);
-  }
+  if (!r.ok) throw new Error(`OSRM HTTP ${r.status}`);
 
   const data = (await r.json()) as {
-    code?: string;
     routes?: Array<{
       distance?: number;
       duration?: number;
@@ -241,24 +152,10 @@ export async function calculateRoute(
   if (points.length < 2) {
     throw new Error("Valitse vähintään lähtöpiste ja määränpää.");
   }
-
   try {
     return await fetchValhallaRoute(points, mode, signal);
   } catch (err) {
     if (signal?.aborted) throw err;
     return await fetchOsrmRoute(points, mode, signal);
   }
-}
-
-export function formatRouteDuration(seconds: number): string {
-  const totalMinutes = Math.max(1, Math.round(seconds / 60));
-  const hours = Math.floor(totalMinutes / 60);
-  const mins = totalMinutes % 60;
-  if (hours === 0) return `${mins} min`;
-  return mins === 0 ? `${hours} h` : `${hours} h ${mins} min`;
-}
-
-export function formatRouteDistance(meters: number): string {
-  if (meters < 1000) return `${Math.round(meters)} m`;
-  return `${(meters / 1000).toFixed(1)} km`;
 }

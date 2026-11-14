@@ -1,6 +1,8 @@
 import { GripVertical, ChevronDown, ChevronRight, MoreHorizontal, Folder, Eye, EyeOff } from "lucide-react";
 import { usePersistedBool, usePersistedStringSet } from "../../settings/hooks/persistedUiState";
-import type { LayerListProps } from "../model/layerListTypes";
+import type { LayerListItem, LayerListProps } from "../model/layerListTypes";
+import { buildLayerSectionEntries } from "../domain/layerGrouping";
+import { LayerRow } from "./LayerRow";
 
 export default function LayerList({
   basemaps,
@@ -33,91 +35,30 @@ export default function LayerList({
   const [expandedHidden, toggleHidden] = usePersistedBool("layerListExpandedHidden", true);
   const [expandedGroupIds, toggleGroupExpanded] = usePersistedStringSet("layerListCollapsedGroups");
 
-  const renderLayer = (layer: typeof basemaps[number], role: "basemap" | "overlay", ids: string[]) => (
-    <div
+  const renderLayer = (layer: LayerListItem, role: "basemap" | "overlay", allIds: string[]) => (
+    <LayerRow
       key={layer.id}
-      data-kb-row="true"
-      onPointerEnter={() => {
-        if (draggingGroup && draggingGroup.role === role) {
-          onMoveDraggedGroupOverLayer?.(role, layer.id, ids);
-        } else {
-          onMoveDraggedLayer(role, layer.id, ids);
-        }
-      }}
-      onContextMenu={(event) => onContextMenu(event, layer.id, layer.name, role === "overlay", layer.source)}
-      className={`group flex items-center justify-between gap-1.5 rounded-md px-1.5 py-1 transition-colors hover:bg-slate-100 dark:hover:bg-zinc-800/60 ${
-        dragging?.kind === role && dragging.id === layer.id
-          ? "bg-blue-100 ring-1 ring-blue-400 dark:bg-blue-900/60"
-          : ""
-      } ${missing(layer.needs) || (layer.source && !layer.source.url.trim() && !layer.source.base_path.trim()) ? "opacity-45" : ""}`}
-      title={
-        missing(layer.needs)
-          ? "Lisää API-avain asetuksissa"
-          : layer.source && !layer.source.url.trim() && !layer.source.base_path.trim()
-          ? "Lisää URL-osoite tason muokkauksesta"
-          : layer.note
-      }
-    >
-      <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        <span
-          onPointerDown={(event) => onBeginDrag(event, role, layer.id)}
-          className={`touch-none text-slate-300 group-hover:text-slate-500 dark:text-zinc-600 dark:group-hover:text-zinc-400 ${
-            dragging?.id === layer.id ? "cursor-grabbing" : "cursor-grab"
-          }`}
-        >
-          <GripVertical size={14} />
-        </span>
-        <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
-          <input
-            type={role === "basemap" ? "radio" : "checkbox"}
-            name={role === "basemap" ? "base" : undefined}
-            checked={role === "basemap" ? basemap === layer.id : activeOverlays.includes(layer.id)}
-            onChange={() => (role === "basemap" ? onSetBasemap(layer.id) : onToggleOverlay(layer.id))}
-            className="h-3.5 w-3.5 rounded accent-blue-600"
-          />
-          <span className="truncate text-xs text-slate-700 dark:text-zinc-200">{layer.name}</span>
-        </label>
-      </div>
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpenMenu(event, layer.id, layer.name, role === "overlay", layer.source);
-        }}
-        className="rounded p-0.5 text-slate-400 hover:bg-slate-200/70 hover:text-slate-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200 transition-colors opacity-60 group-hover:opacity-100 shrink-0"
-        title="Karttatason toiminnot ja ryhmät"
-        aria-label={`Karttatason ${layer.name} toiminnot`}
-      >
-        <MoreHorizontal size={14} />
-      </button>
-    </div>
+      layer={layer}
+      role={role}
+      allIds={allIds}
+      basemap={basemap}
+      activeOverlays={activeOverlays}
+      dragging={dragging}
+      draggingGroup={draggingGroup}
+      missing={missing}
+      onBeginDrag={onBeginDrag}
+      onMoveDraggedLayer={onMoveDraggedLayer}
+      onMoveDraggedGroupOverLayer={onMoveDraggedGroupOverLayer}
+      onContextMenu={onContextMenu}
+      onOpenMenu={onOpenMenu}
+      onSetBasemap={onSetBasemap}
+      onToggleOverlay={onToggleOverlay}
+    />
   );
 
-  const renderLayerSection = (items: typeof basemaps, role: "basemap" | "overlay") => {
+  const renderLayerSection = (items: LayerListItem[], role: "basemap" | "overlay") => {
     const allIds = items.map((i) => i.id);
-    const activeGroupMap = new Map((groups || []).filter((grp) => !grp.hidden).map((grp) => [grp.id, grp]));
-    const renderedGroupIds = new Set<string>();
-    const entries: Array<
-      | { type: "group"; group: typeof groups[number]; layers: typeof basemaps }
-      | { type: "layer"; layer: typeof basemaps[number] }
-    > = [];
-
-    for (const item of items) {
-      const gid = layerGroupMap?.[item.id];
-      const grp = gid ? activeGroupMap.get(gid) : undefined;
-      if (grp) {
-        if (!renderedGroupIds.has(grp.id)) {
-          renderedGroupIds.add(grp.id);
-          entries.push({
-            type: "group",
-            group: grp,
-            layers: items.filter((l) => layerGroupMap?.[l.id] === grp.id),
-          });
-        }
-      } else {
-        entries.push({ type: "layer", layer: item });
-      }
-    }
+    const entries = buildLayerSectionEntries(items, groups, layerGroupMap);
 
     return (
       <div className="space-y-0.5 pt-0.5">

@@ -3,6 +3,7 @@ mod export;
 mod features;
 mod nominatim;
 mod secrets;
+mod settings;
 mod sources;
 mod terrain;
 mod tiles;
@@ -88,14 +89,14 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            features::get_settings,
-            features::set_setting,
-            features::set_settings,
-            sources::list_sources,
-            sources::delete_source,
-            sources::add_source_config,
-            sources::update_source_config,
-            sources::reset_source_to_default,
+            settings::get_settings,
+            settings::set_setting,
+            settings::set_settings,
+            sources::commands::list_sources,
+            sources::commands::delete_source,
+            sources::commands::add_source_config,
+            sources::commands::update_source_config,
+            sources::commands::reset_source_to_default,
             features::list_features,
             features::add_feature,
             features::update_feature,

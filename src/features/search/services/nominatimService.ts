@@ -1,3 +1,4 @@
+import { runWithAbort, throwIfAborted } from "../../../shared/async/abort";
 import { inTauri } from "../../../infrastructure/tauri/runtime";
 import {
   nominatimReverseBackend,
@@ -34,31 +35,6 @@ export type NominatimReversePayload = {
 
 function isAbortError(signal?: AbortSignal): boolean {
   return Boolean(signal?.aborted);
-}
-
-function throwIfAborted(signal?: AbortSignal) {
-  if (signal?.aborted) {
-    throw new DOMException("The operation was aborted.", "AbortError");
-  }
-}
-
-async function runWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-  throwIfAborted(signal);
-  if (!signal) return promise;
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(new DOMException("The operation was aborted.", "AbortError"));
-    signal.addEventListener("abort", onAbort, { once: true });
-    promise.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort);
-        resolve(value);
-      },
-      (err) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(err);
-      },
-    );
-  });
 }
 
 export async function searchNominatim(
