@@ -14,6 +14,7 @@ export function buildLayerSettingsKey(settings: Record<string, string>): string 
     settings.lantmaterietPassword ?? "",
     settings.owmKey ?? "",
     settings.copernicusInstanceId ?? "",
+    settings.customApiKeys ?? "{}",
     settings.tileCache ?? "1",
     settings.layerViewSettings ?? "{}",
   ]);

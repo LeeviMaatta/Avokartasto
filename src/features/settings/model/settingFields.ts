@@ -65,4 +65,5 @@ export const SETTING_VALUE_KEYS = [
   "keyboardShortcuts",
   "rotationKey",
   "arrowZoomKey",
+  "customApiKeys",
 ] as const;

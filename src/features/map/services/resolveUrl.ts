@@ -1,3 +1,27 @@
+export function parseCustomApiKeys(raw: string | undefined): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === "string" && /^[A-Za-z0-9_-]+$/.test(k)) {
+        out[k] = v;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function getSecretValue(settings: Record<string, string>, key: string): string {
+  const direct = settings[key];
+  if (direct) return direct;
+  const custom = parseCustomApiKeys(settings.customApiKeys);
+  return custom[key] ?? "";
+}
+
 export function requiredSecrets(source: { url?: string; auth?: string }): string[] {
   const values = [source.url ?? "", source.auth ?? ""].join(" ");
   const placeholders = [...values.matchAll(/\{secret:([A-Za-z0-9_-]+)\}/g)].map((match) => match[1]);
@@ -12,5 +36,7 @@ export function requiredSecrets(source: { url?: string; auth?: string }): string
 }
 
 export function resolveSourceUrl(template: string, settings: Record<string, string>): string {
-  return template.replace(/\{secret:([A-Za-z0-9_-]+)\}/g, (_, key: string) => encodeURIComponent(settings[key] ?? ""));
+  return template.replace(/\{secret:([A-Za-z0-9_-]+)\}/g, (_, key: string) =>
+    encodeURIComponent(getSecretValue(settings, key)),
+  );
 }

@@ -9,7 +9,7 @@ import AddLayerModal from "./AddLayerModal";
 import LayerEditorModal from "./LayerEditorModal";
 import FolderEditor from "../../markers/components/FolderEditor";
 import { usePersistedBool, usePersistedStringSet } from "../../settings/hooks/persistedUiState";
-import { requiredSecrets } from "../../map/services/resolveUrl";
+import { getSecretValue, requiredSecrets } from "../../map/services/resolveUrl";
 import { focusFirstNavigable, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 import { useLayerCrud, type LayerContextMenuState } from "../hooks/useLayerCrud";
 import { useLayerGroupsAndDrag } from "../hooks/useLayerGroupsAndDrag";
@@ -104,7 +104,7 @@ export default function LayerSwitcher() {
     bumpFeatures,
   });
 
-  const missing = (needs?: string) => Boolean(needs && !settings[needs]);
+  const missing = (needs?: string) => Boolean(needs && !getSecretValue(settings, needs));
 
   const sortByOrder = (role: "basemap" | "overlay", orderList: string[]) =>
     sources
