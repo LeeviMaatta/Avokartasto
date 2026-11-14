@@ -13,6 +13,7 @@ import type { TerrainRoutePreset, TerrainRouteStats } from "../../measurements/d
 import MarkerEditor, { type MarkerDraft, type MarkerFolder } from "../../measurements/components/MarkerEditor";
 import { resolveNearestPlaceName } from "../sources/reverseGeocode";
 import { focusMapViewport, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
+import { isTextInputTarget } from "../../settings/model/keyboardShortcuts";
 
 const emptyMarkerDraft = (geojson: string, folderId = ""): MarkerDraft => ({
   title: "",
@@ -21,6 +22,20 @@ const emptyMarkerDraft = (geojson: string, folderId = ""): MarkerDraft => ({
   folderId,
   geojson,
 });
+
+function shouldIgnoreDeleteForInput(target: EventTarget | null): boolean {
+  if (!isTextInputTarget(target)) return false;
+  if (!(target instanceof HTMLElement)) return true;
+  if (target.closest("[data-measure-tool='true']")) {
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+      return target.value.length > 0;
+    }
+    if (target instanceof HTMLSelectElement) {
+      return false;
+    }
+  }
+  return true;
+}
 
 export default function MeasureTool() {
   const tool = useMapStore((s) => s.tool);
@@ -306,42 +321,78 @@ export default function MeasureTool() {
   };
 
   const escapeActionRef = useRef<(() => void) | null>(null);
+  const deleteActionRef = useRef<(() => void) | null>(null);
   if (markerDraft && tool !== "measure") {
     escapeActionRef.current = () => {
       cancelMarkerEdit();
       focusMapViewport();
+    };
+    deleteActionRef.current = () => {
+      void deleteMarker().then((deleted) => {
+        if (deleted) focusMapViewport();
+      });
     };
   } else if (selectedFeature?.kind === "marker" && tool !== "measure") {
     escapeActionRef.current = () => {
       useMapStore.setState({ selectedFeature: null });
       focusMapViewport();
     };
+    deleteActionRef.current = () => {
+      void deleteSelectedMarker().then((deleted) => {
+        if (deleted) focusMapViewport();
+      });
+    };
   } else if (tool === "measure" || Boolean(selectedFeature) || Boolean(activeUnsavedMeasurementId)) {
     escapeActionRef.current = () => {
       closeMeasureTool();
       focusMapViewport();
     };
+    deleteActionRef.current =
+      measure && (editingFeatureId !== null || activeUnsavedMeasurementId !== null)
+        ? () => {
+            void deleteCurrentMeasurement().then((deleted) => {
+              if (deleted && tool !== "measure") focusMapViewport();
+            });
+          }
+        : null;
   } else {
     escapeActionRef.current = null;
+    deleteActionRef.current = null;
   }
 
-  const hasEscapeTarget = Boolean(escapeActionRef.current);
+  const hasKeyboardTarget = Boolean(escapeActionRef.current || deleteActionRef.current);
   useEffect(() => {
-    if (!hasEscapeTarget) return;
+    if (!hasKeyboardTarget) return;
     const onWindowKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.defaultPrevented) return;
       if (document.querySelector('[aria-modal="true"], [data-shortcut-capturing="true"]')) return;
-      const action = escapeActionRef.current;
-      if (!action) return;
-      event.preventDefault();
-      action();
+      if (event.key === "Escape") {
+        const action = escapeActionRef.current;
+        if (!action) return;
+        event.preventDefault();
+        action();
+        return;
+      }
+      if (
+        event.key === "Delete" &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !shouldIgnoreDeleteForInput(event.target) &&
+        !document.querySelector("[data-feature-context-menu]")
+      ) {
+        const action = deleteActionRef.current;
+        if (!action) return;
+        event.preventDefault();
+        action();
+      }
     };
     window.addEventListener("keydown", onWindowKeyDown);
     return () => window.removeEventListener("keydown", onWindowKeyDown);
-  }, [hasEscapeTarget]);
+  }, [hasKeyboardTarget]);
 
-  const deleteMarker = async () => {
-    if (!markerDraft) return;
+  const deleteMarker = async (): Promise<boolean> => {
+    if (!markerDraft) return false;
     if (markerDraft.id !== undefined) {
       if (await requestConfirmation(`Haluatko varmasti poistaa merkin "${markerDraft.title || "Merkki"}"?`)) {
         await deleteFeature(markerDraft.id);
@@ -349,12 +400,26 @@ export default function MeasureTool() {
         setMarkerDraft(null);
         useMapStore.setState({ pendingMarker: null, markerEditorOpen: false, selectedFeature: null });
         setMsg("");
+        return true;
       }
+      return false;
     } else {
       setMarkerDraft(null);
       useMapStore.setState({ pendingMarker: null, markerEditorOpen: false, selectedFeature: null });
       setMsg("");
+      return true;
     }
+  };
+
+  const deleteSelectedMarker = async (): Promise<boolean> => {
+    if (!selectedFeature || selectedFeature.kind !== "marker") return false;
+    if (!(await requestConfirmation(`Haluatko varmasti poistaa merkin "${selectedFeature.title || "Merkki"}"?`))) {
+      return false;
+    }
+    await deleteFeature(selectedFeature.id);
+    bumpFeatures();
+    useMapStore.setState({ selectedFeature: null });
+    return true;
   };
 
   if (markerDraft && tool !== "measure") {
@@ -404,14 +469,8 @@ export default function MeasureTool() {
         }}><Pencil size={13} /> Muokkaa</button>
         <button 
           className="flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-900/60 transition"
-          onClick={async () => {
-            if (await requestConfirmation(`Haluatko varmasti poistaa merkin "${selectedFeature.title || "Merkki"}"?`)) {
-              await deleteFeature(selectedFeature.id);
-              bumpFeatures();
-              useMapStore.setState({ selectedFeature: null });
-            }
-          }}
-          title="Poista merkki"
+          onClick={() => void deleteSelectedMarker()}
+          title="Poista merkki (Delete)"
         >
           <Trash2 size={13} /> <span>Poista</span>
         </button>
@@ -470,17 +529,20 @@ export default function MeasureTool() {
     }
   };
 
-  const deleteCurrentMeasurement = async () => {
+  const deleteCurrentMeasurement = async (): Promise<boolean> => {
     if (editingFeatureId !== null) {
       const label = title.trim() || selectedFeature?.title || "Mittaus";
-      if (!(await requestConfirmation(`Haluatko varmasti poistaa mittauksen "${label}"?`))) return;
+      if (!(await requestConfirmation(`Haluatko varmasti poistaa mittauksen "${label}"?`))) return false;
       await deleteFeature(editingFeatureId);
       bumpFeatures();
       window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId: editingFeatureId } }));
     } else if (activeUnsavedMeasurementId) {
       window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { unsavedId: activeUnsavedMeasurementId } }));
+    } else {
+      return false;
     }
     resetActiveMeasurementState(false);
+    return true;
   };
 
   const chooseType = (nextType: "distance" | "area") => {
@@ -581,6 +643,7 @@ export default function MeasureTool() {
 
   return (
     <div
+      data-measure-tool="true"
       onKeyDown={(e) => handleContainerArrowKeyDown(e, { orientation: "horizontal", onEscape: () => { closeMeasureTool(); focusMapViewport(); } })}
       className="absolute left-2 right-2 top-16 sm:top-20 z-10 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 py-2 text-xs sm:text-sm text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 sm:left-1/2 sm:right-auto sm:max-w-[min(96vw,68rem)] sm:-translate-x-1/2 sm:gap-2.5 sm:px-4"
       style={{ opacity: overlayOpacity }}

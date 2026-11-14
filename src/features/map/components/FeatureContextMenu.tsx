@@ -41,12 +41,55 @@ export default function FeatureContextMenu({ value, opacity, measureSource, prof
   const geojson = geometry
     ? new GeoJSON().writeGeometry(geometry, { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" })
     : "";
+  const canDelete = Boolean(geometry && (value.savedId || !isPoint));
+
+  const handleDelete = async () => {
+    if (!canDelete) return;
+    const prompt = isPoint
+      ? `Haluatko varmasti poistaa merkin "${title}"?`
+      : `Haluatko varmasti poistaa mittauksen "${title}"?`;
+    if (!(await requestConfirmation(prompt))) return;
+    if (value.savedId) {
+      await deleteFeature(value.savedId);
+      useMapStore.getState().bumpFeatures();
+      if (!isPoint) clearSavedEditFeatures(measureSource, value.savedId);
+    } else {
+      measureSource.removeFeature(value.feature);
+    }
+    const state = useMapStore.getState();
+    const deletedActiveSaved = value.savedId !== undefined && state.editingFeatureId === value.savedId;
+    const deletedActiveUnsaved =
+      value.savedId === undefined &&
+      Boolean(value.feature.get("unsavedId")) &&
+      state.activeUnsavedMeasurementId === value.feature.get("unsavedId");
+    if (deletedActiveSaved || deletedActiveUnsaved) {
+      profileRequest.current += 1;
+      useMapStore.setState({
+        measure: null,
+        profile: null,
+        profileVisible: false,
+        profileError: null,
+        editingFeatureId: null,
+        activeUnsavedMeasurementId: null,
+        selectedFeature: null,
+      });
+    }
+    onClose();
+  };
 
   return (
     <div
       ref={menuRef}
       role="menu"
-      onKeyDown={(event) => handleContainerArrowKeyDown(event, { onEscape: () => { onClose(); focusMapViewport(); } })}
+      onKeyDown={(event) => {
+        if (event.key === "Delete" && !event.ctrlKey && !event.altKey && !event.metaKey && canDelete) {
+          event.preventDefault();
+          event.stopPropagation();
+          void handleDelete();
+          return;
+        }
+        handleContainerArrowKeyDown(event, { onEscape: () => { onClose(); focusMapViewport(); } });
+      }}
       style={{ top: value.y, left: value.x, opacity }}
       data-feature-context-menu
       className="absolute z-40 rounded-lg border border-gray-700 bg-white py-1 text-xs shadow-xl dark:bg-gray-800 dark:text-white"
@@ -119,41 +162,10 @@ export default function FeatureContextMenu({ value, opacity, measureSource, prof
       >
         <Pencil size={13} /> {isPoint ? "Muokkaa merkkiä" : "Muokkaa mittausta"}
       </button>
-      {geometry && (value.savedId || !isPoint) && (
+      {canDelete && (
         <button
           className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-600 hover:bg-gray-100 dark:text-red-400 dark:hover:bg-gray-700"
-          onClick={async () => {
-            const prompt = isPoint
-              ? `Haluatko varmasti poistaa merkin "${title}"?`
-              : `Haluatko varmasti poistaa mittauksen "${title}"?`;
-            if (!(await requestConfirmation(prompt))) return;
-            if (value.savedId) {
-              await deleteFeature(value.savedId);
-              useMapStore.getState().bumpFeatures();
-              if (!isPoint) clearSavedEditFeatures(measureSource, value.savedId);
-            } else {
-              measureSource.removeFeature(value.feature);
-            }
-            const state = useMapStore.getState();
-            const deletedActiveSaved = value.savedId !== undefined && state.editingFeatureId === value.savedId;
-            const deletedActiveUnsaved =
-              value.savedId === undefined &&
-              Boolean(value.feature.get("unsavedId")) &&
-              state.activeUnsavedMeasurementId === value.feature.get("unsavedId");
-            if (deletedActiveSaved || deletedActiveUnsaved) {
-              profileRequest.current += 1;
-              useMapStore.setState({
-                measure: null,
-                profile: null,
-                profileVisible: false,
-                profileError: null,
-                editingFeatureId: null,
-                activeUnsavedMeasurementId: null,
-                selectedFeature: null,
-              });
-            }
-            onClose();
-          }}
+          onClick={() => void handleDelete()}
         >
           <Trash2 size={13} /> {isPoint ? "Poista merkki" : "Poista mittaus"}
         </button>

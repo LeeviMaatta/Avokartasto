@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Bookmark, ChevronDown, ChevronRight, Eye, EyeOff, Folder, FolderPlus, Pencil, Trash2 } from "lucide-react";
 import type { MarkerFolder, MarkerPanelProps } from "../model/markerTypes";
 import { focusFirstNavigable, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
+import { isTextInputTarget } from "../../settings/model/keyboardShortcuts";
 
 export default function FeaturePanel({
   features,
@@ -46,6 +47,7 @@ export default function FeaturePanel({
       <div
         key={feature.id}
         data-kb-row="true"
+        data-kb-feature-id={feature.id}
         className="group flex items-center justify-between gap-1 rounded-md px-1.5 py-1 transition-colors hover:bg-slate-100 dark:hover:bg-zinc-800/60"
       >
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -94,7 +96,41 @@ export default function FeaturePanel({
   return (
     <div
       ref={panelRef}
-      onKeyDown={(event) => handleContainerArrowKeyDown(event)}
+      onKeyDown={(event) => {
+        if (
+          event.key === "Delete" &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.metaKey &&
+          !isTextInputTarget(event.target) &&
+          !document.querySelector('[aria-modal="true"], [data-shortcut-capturing="true"]')
+        ) {
+          const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          const featureRow = active?.closest<HTMLElement>("[data-kb-feature-id]");
+          if (featureRow && panelRef.current?.contains(featureRow)) {
+            const featureId = Number(featureRow.dataset.kbFeatureId);
+            const feature = features.find((f) => f.id === featureId);
+            if (feature) {
+              event.preventDefault();
+              event.stopPropagation();
+              onDeleteFeature(feature);
+              return;
+            }
+          }
+          const folderRow = active?.closest<HTMLElement>("[data-kb-folder-id]");
+          if (folderRow && panelRef.current?.contains(folderRow)) {
+            const folderId = folderRow.dataset.kbFolderId;
+            const folder = folders.find((f) => f.id === folderId);
+            if (folder) {
+              event.preventDefault();
+              event.stopPropagation();
+              onRemoveFolder(folder);
+              return;
+            }
+          }
+        }
+        handleContainerArrowKeyDown(event);
+      }}
       className="overflow-hidden rounded-lg bg-white/95 text-sm shadow-lg backdrop-blur dark:bg-zinc-950/95 dark:text-white"
     >
       <div data-kb-row="true" className="flex w-full items-center justify-between gap-1 px-3 py-2">
@@ -127,7 +163,7 @@ export default function FeaturePanel({
             const isExpanded = expandedFolderIds.has(folder.id);
             return (
               <div key={folder.id} className="mt-1 rounded-md border border-slate-100 bg-slate-50/50 p-1 transition-colors dark:border-zinc-800/80 dark:bg-zinc-900/30">
-                <div data-kb-row="true" className="group/grp flex items-center justify-between gap-1 px-1 py-0.5 text-[11px] font-medium text-slate-600 dark:text-zinc-300">
+                <div data-kb-row="true" data-kb-folder-id={folder.id} className="group/grp flex items-center justify-between gap-1 px-1 py-0.5 text-[11px] font-medium text-slate-600 dark:text-zinc-300">
                   <button className="shrink-0 rounded p-0.5 text-slate-500 transition-colors hover:bg-slate-200/70 dark:text-zinc-400 dark:hover:bg-zinc-800" title={folder.visible ? "Piilota kansio kartalta" : "Näytä kansio kartalla"} onClick={() => onToggleFolder(folder)}>
                     {folder.visible ? <Eye size={13} /> : <EyeOff size={13} className="text-slate-400 dark:text-zinc-500" />}
                   </button>

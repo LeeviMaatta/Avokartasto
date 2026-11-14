@@ -42,6 +42,7 @@ export default function MarkerEditor({
   );
   return (
     <div 
+      data-measure-tool="true"
       onKeyDown={(event) => handleContainerArrowKeyDown(event, { orientation: "horizontal", onEscape: () => { onCancel(); focusMapViewport(); } })}
       className="absolute left-2 right-2 top-16 z-20 flex flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 py-2.5 text-xs text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-100 sm:left-1/2 sm:right-auto sm:top-20 sm:max-w-[min(96vw,56rem)] sm:-translate-x-1/2 sm:gap-2.5 sm:px-4" 
       style={{ opacity }}

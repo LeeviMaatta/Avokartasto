@@ -155,6 +155,7 @@ export function formatShortcutLabel(combo: string): string {
     space: "Space",
     escape: "Esc",
     enter: "Enter",
+    delete: "Delete",
     arrowup: "↑",
     arrowdown: "↓",
     arrowleft: "←",
