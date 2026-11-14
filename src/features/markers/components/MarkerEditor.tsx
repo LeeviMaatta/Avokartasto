@@ -14,7 +14,6 @@ export type MarkerDraft = {
 
 interface MarkerEditorProps {
   draft: MarkerDraft;
-  folders: MarkerFolder[];
   opacity: number;
   busy: boolean;
   message: string;
@@ -26,7 +25,6 @@ interface MarkerEditorProps {
 
 export default function MarkerEditor({ 
   draft, 
-  folders, 
   opacity, 
   busy, 
   message, 
@@ -68,16 +66,6 @@ export default function MarkerEditor({
         value={draft.description} 
         onChange={(event) => onChange({ ...draft, description: event.target.value })} 
       />
-
-      <select 
-        className="max-w-36 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" 
-        aria-label="Merkin kansio" 
-        value={draft.folderId} 
-        onChange={(event) => onChange({ ...draft, folderId: event.target.value })}
-      >
-        <option value="">Ei kansiota</option>
-        {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
-      </select>
 
       <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
         <button 

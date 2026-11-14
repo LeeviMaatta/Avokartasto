@@ -52,6 +52,7 @@ export const DEFAULT_SETTINGS: Settings = {
   layerGroups: "[]",
   layerGroupMap: "{}",
   markerFolders: "[]",
+  featureOrder: "[]",
   hiddenFeatures: "[]",
   hiddenLayers: "[]",
   layerListExpandedBasemaps: "1",

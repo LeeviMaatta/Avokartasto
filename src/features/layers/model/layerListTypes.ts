@@ -47,6 +47,7 @@ export type LayerListProps = {
   onMoveDraggedGroup?: (role: "overlay" | "basemap", targetGroupId: string, ids: string[]) => void;
   onMoveDraggedGroupOverLayer?: (role: "overlay" | "basemap", targetLayerId: string, ids: string[]) => void;
   onMoveLayerOverGroup?: (role: "overlay" | "basemap", targetGroupId: string, ids: string[]) => void;
+  onRemoveDraggedLayerFromGroup?: (role: "overlay" | "basemap", ids: string[], position?: "start" | "end") => void;
   onContextMenu: (event: MouseEvent, id: string, name: string, overlay: boolean, source?: LocalSource) => void;
   onOpenMenu: (event: MouseEvent, id: string, name: string, overlay: boolean, source?: LocalSource) => void;
   onOpenGroupMenu?: (event: MouseEvent, groupId: string, groupName: string) => void;

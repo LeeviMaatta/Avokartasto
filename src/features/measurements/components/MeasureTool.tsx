@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Download, Link2, Save, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { BarChart3, Link2, Save, Trash2, X } from "lucide-react";
 import { useMapStore } from "../../../store/mapStore";
-import { exportMeasurement as saveMeasurementFile } from "../domain/measurementExport";
 import { formatArea, formatDistance } from "../domain/measurementFormatting";
 import {
   getLinkedMeasurementGroup,
   toMeasurementLinkKey,
 } from "../domain/measurementSelection";
-import MarkerEditor, { type MarkerFolder } from "../../markers/components/MarkerEditor";
+import MarkerEditor from "../../markers/components/MarkerEditor";
 import { SelectedMarkerBar } from "../../markers/components/SelectedMarkerBar";
 import { useMarkerWorkflow } from "../../markers/hooks/useMarkerWorkflow";
 import { useMeasurementWorkflow } from "../hooks/useMeasurementWorkflow";
@@ -44,7 +43,6 @@ export default function MeasureTool() {
   const enableTerrainRouting = useMapStore((s) => s.settings.enableTerrainRouting !== "0");
   const savedMarkerColor = useMapStore((s) => s.settings.savedMarkerColor || "#dc2626");
   const savedMeasurementColor = useMapStore((s) => s.settings.savedMeasurementColor || "#16a34a");
-  const markerFoldersSetting = useMapStore((s) => s.settings.markerFolders);
   const rawOverlayOpacity = Number(useMapStore((s) => s.settings.uiOverlayOpacity ?? "1"));
   const overlayOpacity = Number.isFinite(rawOverlayOpacity) ? Math.min(1, Math.max(0, rawOverlayOpacity)) : 1;
   const pendingMarker = useMapStore((s) => s.pendingMarker);
@@ -53,17 +51,6 @@ export default function MeasureTool() {
   const profileError = useMapStore((s) => s.profileError);
   const profileVisible = useMapStore((s) => s.profileVisible);
   const [msg, setMsg] = useState("");
-
-  const markerFolders = useMemo<MarkerFolder[]>(() => {
-    try {
-      const parsed: unknown = JSON.parse(markerFoldersSetting ?? "[]");
-      return Array.isArray(parsed)
-        ? parsed.filter((folder): folder is MarkerFolder => Boolean(folder) && typeof folder.id === "string" && typeof folder.name === "string")
-        : [];
-    } catch {
-      return [];
-    }
-  }, [markerFoldersSetting]);
 
   useEffect(() => {
     if (msg !== "Tallennettu") return;
@@ -86,7 +73,6 @@ export default function MeasureTool() {
     pendingMarker,
     selectedFeature,
     savedMarkerColor,
-    markerFolders,
     bumpFeatures,
     setMsg,
     onResetMeasurementBeforeMarkerEdit: handleResetMeasurementBeforeMarkerEdit,
@@ -194,7 +180,6 @@ export default function MeasureTool() {
     return (
       <MarkerEditor
         draft={marker.markerDraft}
-        folders={markerFolders}
         opacity={overlayOpacity}
         busy={marker.markerBusy}
         message={msg}
@@ -296,16 +281,6 @@ export default function MeasureTool() {
             </span>
           )}
           <input className="w-28 sm:w-36 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" placeholder="Mittauksen nimi" aria-label="Mittauksen nimi" value={measurement.title} onChange={(e) => measurement.setTitle(e.target.value)} />
-          <input className="w-28 sm:w-40 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" placeholder="Kuvaus" aria-label="Mittauksen kuvaus" value={measurement.description} onChange={(e) => measurement.setDescription(e.target.value)} />
-          <select
-            className="max-w-36 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-            aria-label="Mittauksen kansio"
-            value={measurement.folderId}
-            onChange={(e) => measurement.setFolderId(e.target.value)}
-          >
-            <option value="">Ei kansiota</option>
-            {markerFolders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
-          </select>
           <button disabled={measurement.savingMeasurement} className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white shadow hover:bg-blue-700 disabled:opacity-60 transition" onClick={() => void measurement.saveMeasurement()}>
             <Save size={13} /> {editingFeatureId ? "Tallenna muutokset" : "Tallenna"}
           </button>
@@ -328,22 +303,6 @@ export default function MeasureTool() {
               <Link2 size={13} /> Valitse yhdistetyt ({linkedGroup.length})
             </button>
           )}
-          <button
-            className="flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900 transition"
-            onClick={() => {
-              if (!measure) return;
-              void saveMeasurementFile(measure, measurement.title, measurement.description)
-                .then((res) => {
-                  if (res.status === "saved") setMsg(`Viety: ${res.path}`);
-                })
-                .catch((err) => {
-                  setMsg(`Vienti epäonnistui: ${err instanceof Error ? err.message : String(err)}`);
-                });
-            }}
-            title="Vie GeoJSON-tiedostona"
-          >
-            <Download size={13} /> Vie
-          </button>
           {measure.kind === "distance" && (
             <>
               {enableTerrainRouting && (

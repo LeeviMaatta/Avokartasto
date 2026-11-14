@@ -36,7 +36,6 @@ export function useMeasurementWorkflow({
   onClearMarkerDraft,
 }: UseMeasurementWorkflowOptions) {
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
   const [folderId, setFolderId] = useState("");
   const [savingMeasurement, setSavingMeasurement] = useState(false);
   const savingMeasurementRef = useRef(false);
@@ -65,7 +64,6 @@ export function useMeasurementWorkflow({
     setOriginalProfileBeforeRoute(null);
     setTerrainStats(null);
     setTitle("");
-    setDescription("");
     setFolderId("");
   }, []);
 
@@ -73,11 +71,9 @@ export function useMeasurementWorkflow({
     if (selectedFeature?.kind === "measurement") {
       onClearMarkerDraft();
       setTitle(selectedFeature.title);
-      setDescription(selectedFeature.description ?? "");
       setFolderId(selectedFeature.folder_id ?? "");
     } else if (!selectedFeature) {
       setTitle("");
-      setDescription("");
       setFolderId("");
     }
   }, [selectedFeature, onClearMarkerDraft]);
@@ -103,7 +99,6 @@ export function useMeasurementWorkflow({
       clearTerrainAndFields();
       onClearMarkerDraft();
       setTitle(feature.title);
-      setDescription(feature.description ?? "");
       setFolderId(feature.folder_id ?? "");
       setMsg("");
       useMapStore.setState({
@@ -123,7 +118,6 @@ export function useMeasurementWorkflow({
           id: feature.id,
           kind: "measurement",
           title: feature.title,
-          description: feature.description,
           color: feature.color || "#dc2626",
           folder_id: feature.folder_id,
           geojson: feature.geojson,
@@ -191,20 +185,19 @@ export function useMeasurementWorkflow({
       const resolvedTitle =
         title.trim() ||
         (await resolveNearestPlaceName(targetMeasure.geojson, "Mittaus"));
-      const resolvedDescription = description.trim() || null;
       const featureType = targetMeasure.kind === "area" ? "POLYGON" : "LINESTRING";
       if (targetSavedId !== null) {
         await updateFeature(
           targetSavedId,
           resolvedTitle,
-          resolvedDescription,
+          null,
           featureType,
           targetMeasure.geojson,
           folderId,
           savedMeasurementColor,
         );
       } else {
-        await addFeature(resolvedTitle, resolvedDescription, featureType, targetMeasure.geojson, folderId, savedMeasurementColor);
+        await addFeature(resolvedTitle, null, featureType, targetMeasure.geojson, folderId, savedMeasurementColor);
       }
       bumpFeatures();
       window.dispatchEvent(
@@ -226,7 +219,6 @@ export function useMeasurementWorkflow({
         selectedFeature: null,
       });
       setTitle("");
-      setDescription("");
       setFolderId("");
       setMsg("Tallennettu");
     } catch (error) {
@@ -368,8 +360,6 @@ export function useMeasurementWorkflow({
   return {
     title,
     setTitle,
-    description,
-    setDescription,
     folderId,
     setFolderId,
     savingMeasurement,

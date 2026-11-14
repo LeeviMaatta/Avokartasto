@@ -1,9 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMapStore } from "../../../store/mapStore";
 import { deleteFeature, listFeatures, updateFeature, type UserFeature } from "../../../infrastructure/tauri";
 import { requestConfirmation } from "../../../app/confirmation";
 import type { MarkerFolder } from "../model/markerTypes";
 import { getFeatureFocusLonLat } from "../../measurements/domain/measurementSource";
+import { exportMeasurement } from "../../measurements/domain/measurementExport";
+
+function sortFeaturesByOrder(features: UserFeature[], orderIds: number[]): UserFeature[] {
+  if (orderIds.length === 0) return features;
+  const rank = new Map(orderIds.map((id, idx) => [id, idx]));
+  return [...features].sort((a, b) => {
+    const ai = rank.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+    const bi = rank.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+    return ai - bi;
+  });
+}
 
 export function useMarkerFoldersCrud(
   settings: Record<string, string>,
@@ -11,14 +22,15 @@ export function useMarkerFoldersCrud(
   bumpFeatures: () => void,
   onClearActionMenu: () => void,
 ) {
-  const [features, setFeatures] = useState<UserFeature[]>([]);
+  const [rawFeatures, setRawFeatures] = useState<UserFeature[]>([]);
   const [folders, setFolders] = useState<MarkerFolder[]>([]);
-  const [folderDraft, setFolderDraft] = useState("");
+  const [featureOrder, setFeatureOrder] = useState<number[]>([]);
   const [folderEdit, setFolderEdit] = useState<MarkerFolder | null>(null);
   const [folderEditName, setFolderEditName] = useState("");
+  const [exportMessage, setExportMessage] = useState("");
 
   useEffect(() => {
-    listFeatures().then(setFeatures).catch((error) => console.error("Merkkien lataus epäonnistui", error));
+    listFeatures().then(setRawFeatures).catch((error) => console.error("Merkkien lataus epäonnistui", error));
   }, [featuresVersion]);
 
   useEffect(() => {
@@ -30,9 +42,32 @@ export function useMarkerFoldersCrud(
     }
   }, [settings.markerFolders]);
 
+  useEffect(() => {
+    try {
+      const parsed = JSON.parse(settings.featureOrder ?? "[]");
+      setFeatureOrder(Array.isArray(parsed) ? parsed.filter((id): id is number => Number.isInteger(id)) : []);
+    } catch {
+      setFeatureOrder([]);
+    }
+  }, [settings.featureOrder]);
+
+  useEffect(() => {
+    if (!exportMessage) return;
+    const timer = window.setTimeout(() => setExportMessage(""), 3000);
+    return () => window.clearTimeout(timer);
+  }, [exportMessage]);
+
+  const features = useMemo(() => sortFeaturesByOrder(rawFeatures, featureOrder), [rawFeatures, featureOrder]);
+
   const saveFolders = async (next: MarkerFolder[]) => {
     setFolders(next);
     await useMapStore.getState().setSetting("markerFolders", JSON.stringify(next));
+  };
+
+  const saveFeatureOrder = (nextOrder: number[]) => {
+    const unique = [...new Set(nextOrder)];
+    setFeatureOrder(unique);
+    void useMapStore.getState().setSetting("featureOrder", JSON.stringify(unique));
   };
 
   const hiddenFeatureIds = (() => {
@@ -76,7 +111,7 @@ export function useMarkerFoldersCrud(
 
   const removeFolder = async (folder: MarkerFolder) => {
     if (await requestConfirmation(`Poistetaanko kansio "${folder.name}"?`)) {
-      const affected = features.filter((item) => item.folder_id === folder.id);
+      const affected = rawFeatures.filter((item) => item.folder_id === folder.id);
       await Promise.all(
         affected.map((item) =>
           updateFeature(item.id, item.title, item.description, item.feature_type, item.geojson, "", item.color, item.image_data),
@@ -88,21 +123,36 @@ export function useMarkerFoldersCrud(
     onClearActionMenu();
   };
 
-  const addFolder = () => {
-    const name = folderDraft.trim();
-    if (!name) return;
-    void saveFolders([...folders, { id: `folder-${Date.now()}`, name, visible: true }]);
-    setFolderDraft("");
+  const setFeatureFolder = async (feature: UserFeature, folderId: string) => {
+    if ((feature.folder_id ?? "") === folderId) return;
+    setRawFeatures((prev) => prev.map((item) => (item.id === feature.id ? { ...item, folder_id: folderId } : item)));
+    await updateFeature(feature.id, feature.title, feature.description, feature.feature_type, feature.geojson, folderId, feature.color, feature.image_data);
+    bumpFeatures();
+  };
+
+  const createFolderAndAssign = async (name: string, feature: UserFeature) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const newFolder: MarkerFolder = { id: `folder-${Date.now()}`, name: trimmed, visible: true };
+    await saveFolders([...folders, newFolder]);
+    await setFeatureFolder(feature, newFolder.id);
+  };
+
+  const exportSavedMeasurement = async (feature: UserFeature) => {
+    if (feature.feature_type === "POINT") return;
+    const kind = feature.feature_type === "POLYGON" ? "area" : "distance";
+    try {
+      const res = await exportMeasurement({ length: 0, geojson: feature.geojson, kind }, feature.title);
+      if (res.status === "saved") setExportMessage(`Viety: ${res.path}`);
+    } catch (error) {
+      setExportMessage(`Vienti epäonnistui: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const openEditFeature = (feature: UserFeature) => {
     const focusCoord = getFeatureFocusLonLat(feature.geojson);
     if (focusCoord) {
-      window.dispatchEvent(
-        new CustomEvent("map-focus", {
-          detail: { lon: focusCoord[0], lat: focusCoord[1], zoom: 13 },
-        }),
-      );
+      window.dispatchEvent(new CustomEvent("map-focus", { detail: { lon: focusCoord[0], lat: focusCoord[1], zoom: 13 } }));
     }
     window.dispatchEvent(
       new CustomEvent<UserFeature>(
@@ -137,20 +187,27 @@ export function useMarkerFoldersCrud(
 
   return {
     features,
+    setRawFeatures,
     folders,
-    folderDraft,
-    setFolderDraft,
+    setFolders,
+    featureOrder,
+    setFeatureOrder,
+    saveFolders,
+    saveFeatureOrder,
     folderEdit,
     setFolderEdit,
     folderEditName,
     setFolderEditName,
     hiddenFeatureIds,
+    exportMessage,
     toggleFeatureVisibility,
     toggleFolderVisibility,
     renameFolder,
     saveFolderEdit,
     removeFolder,
-    addFolder,
+    setFeatureFolder,
+    createFolderAndAssign,
+    exportSavedMeasurement,
     openEditFeature,
     deleteSelectedFeature,
   };

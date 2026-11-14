@@ -14,6 +14,7 @@ import { focusFirstNavigable, handleContainerArrowKeyDown } from "../../../share
 import { useLayerCrud, type LayerContextMenuState } from "../hooks/useLayerCrud";
 import { useLayerGroupsAndDrag } from "../hooks/useLayerGroupsAndDrag";
 import { useMarkerFoldersCrud } from "../../markers/hooks/useMarkerFoldersCrud";
+import { useFeatureDrag } from "../../markers/hooks/useFeatureDrag";
 import { LayerContextMenu } from "./LayerContextMenu";
 import { GroupContextMenu } from "./GroupContextMenu";
 import { LayerActionsMenu } from "./LayerActionsMenu";
@@ -55,7 +56,6 @@ export default function LayerSwitcher() {
   const [groupsMenuOpen, toggleGroupsMenuOpen] = usePersistedBool("layerGroupsMenuOpen", false);
   const [newGroupModalOpen, setNewGroupModalOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
-  const [folderMenuOpen, setFolderMenuOpen] = useState(false);
   const [actionMenu, setActionMenu] = useState<{ type: "layers"; x: number; y: number } | null>(null);
   const [expandedFolderIds, toggleFolderExpanded] = usePersistedStringSet("markerExpandedFolders");
 
@@ -90,6 +90,17 @@ export default function LayerSwitcher() {
     bumpFeatures,
     () => setActionMenu(null),
   );
+
+  const featureDrag = useFeatureDrag({
+    features: markerCrud.features,
+    folders: markerCrud.folders,
+    setRawFeatures: markerCrud.setRawFeatures,
+    setFolders: markerCrud.setFolders,
+    setFeatureOrder: markerCrud.setFeatureOrder,
+    saveFolders: markerCrud.saveFolders,
+    saveFeatureOrder: markerCrud.saveFeatureOrder,
+    bumpFeatures,
+  });
 
   const missing = (needs?: string) => Boolean(needs && !settings[needs]);
 
@@ -236,6 +247,7 @@ export default function LayerSwitcher() {
               onMoveDraggedGroup={groupsDrag.moveDraggedGroup}
               onMoveDraggedGroupOverLayer={groupsDrag.moveDraggedGroupOverLayer}
               onMoveLayerOverGroup={groupsDrag.moveLayerOverGroup}
+              onRemoveDraggedLayerFromGroup={groupsDrag.removeDraggedLayerFromGroup}
               onContextMenu={openMenu}
               onOpenMenu={openMenu}
               onOpenGroupMenu={openGroupMenu}
@@ -251,14 +263,12 @@ export default function LayerSwitcher() {
           features={markerCrud.features}
           folders={markerCrud.folders}
           open={openFeatures}
-          folderMenuOpen={folderMenuOpen}
           expandedFolderIds={expandedFolderIds}
-          folderDraft={markerCrud.folderDraft}
           hiddenFeatureIds={markerCrud.hiddenFeatureIds}
+          draggingFeatureId={featureDrag.draggingFeatureId}
+          draggingFolderId={featureDrag.draggingFolderId}
+          exportMessage={markerCrud.exportMessage}
           onToggleOpen={toggleOpenFeatures}
-          onToggleFolderMenu={() => setFolderMenuOpen(!folderMenuOpen)}
-          onFolderDraftChange={markerCrud.setFolderDraft}
-          onAddFolder={markerCrud.addFolder}
           onToggleFolder={markerCrud.toggleFolderVisibility}
           onToggleFolderExpanded={toggleFolderExpanded}
           onRenameFolder={markerCrud.renameFolder}
@@ -266,6 +276,14 @@ export default function LayerSwitcher() {
           onToggleFeatureVisibility={markerCrud.toggleFeatureVisibility}
           onOpenFeature={markerCrud.openEditFeature}
           onDeleteFeature={(feature) => void markerCrud.deleteSelectedFeature(feature)}
+          onExportMeasurement={(feature) => void markerCrud.exportSavedMeasurement(feature)}
+          onSetFeatureFolder={(feature, folderId) => void markerCrud.setFeatureFolder(feature, folderId)}
+          onCreateFolderAndAssign={(name, feature) => void markerCrud.createFolderAndAssign(name, feature)}
+          onBeginDragFeature={featureDrag.beginDragFeature}
+          onMoveDraggedFeature={featureDrag.moveDraggedFeature}
+          onMoveDraggedFeatureToFolder={featureDrag.moveDraggedFeatureToFolder}
+          onBeginDragFolder={featureDrag.beginDragFolder}
+          onMoveDraggedFolder={featureDrag.moveDraggedFolder}
         />
         {actionMenu && (
           <button

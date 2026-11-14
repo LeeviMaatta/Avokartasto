@@ -133,6 +133,11 @@ export function useLayerGroupsAndDrag({
     setDragging({ kind, id });
   };
 
+  const updateGroupMap = (nextMap: Record<string, string>) => {
+    setLayerGroupMap(nextMap);
+    void useMapStore.getState().setSetting("layerGroupMap", JSON.stringify(nextMap));
+  };
+
   const moveDraggedLayer = (kind: "overlay" | "basemap", targetId: string, ids: string[]) => {
     if (!dragging || dragging.kind !== kind || dragging.id === targetId) return;
     const order = [...ids];
@@ -141,7 +146,15 @@ export function useLayerGroupsAndDrag({
     if (from < 0 || to < 0) return;
     order.splice(from, 1);
     order.splice(to, 0, dragging.id);
-    setLayerOrder(kind, order);
+    applyLayerOrderPreservingHidden(kind, order);
+    const targetGroupId = layerGroupMap[targetId];
+    const currentGroupId = layerGroupMap[dragging.id];
+    if (targetGroupId !== currentGroupId) {
+      const nextMap = { ...layerGroupMap };
+      if (targetGroupId) nextMap[dragging.id] = targetGroupId;
+      else delete nextMap[dragging.id];
+      updateGroupMap(nextMap);
+    }
   };
 
   const beginDragGroup = (event: PointerEvent, role: "overlay" | "basemap", groupId: string) => {
@@ -203,22 +216,27 @@ export function useLayerGroupsAndDrag({
 
   const moveLayerOverGroup = (role: "overlay" | "basemap", targetGroupId: string, ids: string[]) => {
     if (!dragging || dragging.kind !== role) return;
-    if (layerGroupMap[dragging.id] === targetGroupId) return;
-    const targetLayers = ids.filter((id) => layerGroupMap[id] === targetGroupId);
+    const targetLayers = ids.filter((id) => layerGroupMap[id] === targetGroupId && id !== dragging.id);
+    const nextMap = layerGroupMap[dragging.id] === targetGroupId
+      ? layerGroupMap
+      : { ...layerGroupMap, [dragging.id]: targetGroupId };
+    if (nextMap !== layerGroupMap) updateGroupMap(nextMap);
     if (targetLayers.length === 0) return;
-
-    const fromIdx = ids.indexOf(dragging.id);
-    const targetFirst = ids.indexOf(targetLayers[0]);
-    if (fromIdx < 0) return;
-
     const remaining = ids.filter((id) => id !== dragging.id);
-    if (fromIdx < targetFirst) {
-      const targetLastIdx = remaining.lastIndexOf(targetLayers[targetLayers.length - 1]);
-      remaining.splice(targetLastIdx + 1, 0, dragging.id);
-    } else {
-      const targetFirstIdx = remaining.indexOf(targetLayers[0]);
-      remaining.splice(targetFirstIdx, 0, dragging.id);
-    }
+    const targetFirstIdx = remaining.indexOf(targetLayers[0]);
+    if (targetFirstIdx < 0) return;
+    remaining.splice(targetFirstIdx, 0, dragging.id);
+    applyLayerOrderPreservingHidden(role, remaining);
+  };
+
+  const removeDraggedLayerFromGroup = (role: "overlay" | "basemap", ids: string[], position: "start" | "end" = "end") => {
+    if (!dragging || dragging.kind !== role || !layerGroupMap[dragging.id]) return;
+    const nextMap = { ...layerGroupMap };
+    delete nextMap[dragging.id];
+    updateGroupMap(nextMap);
+    const remaining = ids.filter((id) => id !== dragging.id);
+    if (position === "start") remaining.unshift(dragging.id);
+    else remaining.push(dragging.id);
     applyLayerOrderPreservingHidden(role, remaining);
   };
 
@@ -238,5 +256,6 @@ export function useLayerGroupsAndDrag({
     moveDraggedGroup,
     moveDraggedGroupOverLayer,
     moveLayerOverGroup,
+    removeDraggedLayerFromGroup,
   };
 }

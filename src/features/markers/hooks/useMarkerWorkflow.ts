@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useMapStore } from "../../../store/mapStore";
 import { addFeature, deleteFeature, updateFeature, type UserFeature } from "../../../infrastructure/tauri";
 import { requestConfirmation } from "../../../app/confirmation";
-import type { MarkerDraft, MarkerFolder } from "../components/MarkerEditor";
+import type { MarkerDraft } from "../components/MarkerEditor";
 import { resolveNearestPlaceName } from "../../search/services/reverseGeocode";
 import type { SelectedFeature } from "../../map/model/mapTypes";
 
@@ -19,7 +19,6 @@ interface UseMarkerWorkflowOptions {
   pendingMarker: [number, number] | null;
   selectedFeature: SelectedFeature | null;
   savedMarkerColor: string;
-  markerFolders: MarkerFolder[];
   bumpFeatures: () => void;
   setMsg: (msg: string) => void;
   onResetMeasurementBeforeMarkerEdit: () => void;
@@ -30,7 +29,6 @@ export function useMarkerWorkflow({
   pendingMarker,
   selectedFeature,
   savedMarkerColor,
-  markerFolders,
   bumpFeatures,
   setMsg,
   onResetMeasurementBeforeMarkerEdit,
@@ -102,11 +100,11 @@ export function useMarkerWorkflow({
         ? prev
         : emptyMarkerDraft(
             JSON.stringify({ type: "Point", coordinates: pendingMarker }),
-            markerFolders[0]?.id ?? "",
+            "",
           ),
     );
     setMsg("");
-  }, [pendingMarker, tool, markerFolders, setMsg]);
+  }, [pendingMarker, tool, setMsg]);
 
   const saveMarker = async () => {
     if (!markerDraft || markerBusy) return;

@@ -22,6 +22,7 @@ export default function LayerList({
   onMoveDraggedGroup,
   onMoveDraggedGroupOverLayer,
   onMoveLayerOverGroup,
+  onRemoveDraggedLayerFromGroup,
   onContextMenu,
   onOpenMenu,
   onOpenGroupMenu,
@@ -75,8 +76,6 @@ export default function LayerList({
               onPointerEnter={() => {
                 if (draggingGroup && draggingGroup.role === role) {
                   onMoveDraggedGroup?.(role, group.id, allIds);
-                } else if (dragging && dragging.kind === role) {
-                  onMoveLayerOverGroup?.(role, group.id, allIds);
                 }
               }}
               className={`mt-1 rounded-md border p-1 transition-colors ${
@@ -85,7 +84,15 @@ export default function LayerList({
                   : "border-slate-100 bg-slate-50/50 dark:border-zinc-800/80 dark:bg-zinc-900/30"
               }`}
             >
-              <div data-kb-row="true" className="group/grp flex items-center justify-between gap-1 px-1 py-0.5 text-[11px] font-medium text-slate-600 dark:text-zinc-300">
+              <div
+                data-kb-row="true"
+                onPointerEnter={() => {
+                  if (dragging && dragging.kind === role) {
+                    onMoveLayerOverGroup?.(role, group.id, allIds);
+                  }
+                }}
+                className="group/grp flex items-center justify-between gap-1 px-1 py-0.5 text-[11px] font-medium text-slate-600 dark:text-zinc-300"
+              >
                 <div className="flex min-w-0 flex-1 items-center gap-1">
                   {onBeginDragGroup && (
                     <span
@@ -133,6 +140,14 @@ export default function LayerList({
             </div>
           );
         })}
+        {dragging?.kind === role && Boolean(layerGroupMap[dragging.id]) && onRemoveDraggedLayerFromGroup && (
+          <div
+            onPointerEnter={() => onRemoveDraggedLayerFromGroup(role, allIds, "end")}
+            className="mt-1 rounded-md border border-dashed border-slate-300 px-2 py-1 text-center text-[10px] text-slate-500 dark:border-zinc-700 dark:text-zinc-400"
+          >
+            Siirrä pois ryhmästä
+          </div>
+        )}
       </div>
     );
   };
