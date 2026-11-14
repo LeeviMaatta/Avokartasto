@@ -689,25 +689,12 @@ export default function MapContainer() {
     if (!rotateControlRef.current) {
       const rotate = new Rotate({
         autoHide: false,
-        tipLabel: "Palauta pohjoinen ylös ja keskitä kartta",
+        tipLabel: "Palauta pohjoinen ylös",
         label: compassEl,
         target: document.getElementById("map-compass-slot") ?? bottomRightRef.current ?? undefined,
         resetNorth: () => {
-          const currentSettings = useMapStore.getState().settings;
-          let targetCenter: [number, number] = [24.94, 60.17];
-          try {
-            const parsed = currentSettings.initialMapCenter ? JSON.parse(currentSettings.initialMapCenter) : null;
-            if (Array.isArray(parsed) && parsed.length === 2 && parsed.every((n) => typeof n === "number" && Number.isFinite(n))) {
-              targetCenter = [parsed[0], parsed[1]];
-            }
-          } catch {
-            // Käytetään oletuskeskipistettä
-          }
-          const initialZoom = Number(currentSettings.initialMapZoom);
           view.animate({
-            center: fromLonLat(targetCenter),
             rotation: 0,
-            ...(Number.isFinite(initialZoom) && currentSettings.initialMapZoom ? { zoom: Math.max(0, Math.min(21, initialZoom)) } : {}),
             duration: 350,
           });
         },
