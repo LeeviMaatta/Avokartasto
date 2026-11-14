@@ -1,14 +1,25 @@
 import { useEffect, useRef } from "react";
-import { Moon, Ruler, Route, Settings, Sun } from "lucide-react";
+import { Moon, Route, Ruler, Settings, Sun, Trash2 } from "lucide-react";
+import { clearAllUnsavedMeasurements } from "../features/measurements/domain/measurementDeletion";
 import { useMapStore, type Tool } from "../store/mapStore";
 import { focusFirstNavigable, handleContainerArrowKeyDown } from "../shared/keyboardNavigation";
 
 export default function AppToolbar() {
   const containerRef = useRef<HTMLDivElement>(null);
   const tool = useMapStore((state) => state.tool);
+  const editingFeatureId = useMapStore((state) => state.editingFeatureId);
+  const activeUnsavedMeasurementId = useMapStore((state) => state.activeUnsavedMeasurementId);
+  const selectedMeasurements = useMapStore((state) => state.selectedMeasurements);
+  const selectedFeature = useMapStore((state) => state.selectedFeature);
   const theme = useMapStore((state) => state.settings.theme);
   const overlayOpacityValue = Number(useMapStore((state) => state.settings.uiOverlayOpacity ?? "1"));
   const overlayOpacity = Number.isFinite(overlayOpacityValue) ? Math.min(1, Math.max(0, overlayOpacityValue)) : 1;
+  const showClearUnsaved =
+    tool === "measure" ||
+    editingFeatureId !== null ||
+    activeUnsavedMeasurementId !== null ||
+    selectedMeasurements.length > 0 ||
+    selectedFeature?.kind === "measurement";
 
   useEffect(() => {
     const onFocusToolbar = () => {
@@ -38,6 +49,17 @@ export default function AppToolbar() {
       className="absolute right-2 top-2 z-30 flex max-w-[calc(100vw-0.5rem)] flex-wrap justify-end gap-1 sm:right-3 sm:top-3 sm:gap-2"
       style={{ opacity: overlayOpacity }}
     >
+      {showClearUnsaved && (
+        <button
+          type="button"
+          className="rounded-xl border border-red-200/90 bg-white/95 p-2.5 text-red-600 shadow-lg backdrop-blur-md transition hover:bg-red-50 hover:text-red-700 dark:border-red-900/60 dark:bg-zinc-950/95 dark:text-red-400 dark:hover:bg-red-950/60 dark:hover:text-red-300"
+          title="Poista kaikki tallentamattomat mittaukset"
+          aria-label="Poista kaikki tallentamattomat mittaukset"
+          onClick={clearAllUnsavedMeasurements}
+        >
+          <Trash2 size={18} />
+        </button>
+      )}
       <button className={buttonClass(tool === "measure")} title="Mittaa matka ja korkeusprofiili" aria-label="Mittaa matka ja korkeusprofiili" onClick={() => toggle("measure")}><Ruler size={18} /></button>
       <button className={buttonClass(tool === "route")} title="Reitinhaku ja reittiohjeet" aria-label="Reitinhaku ja reittiohjeet" onClick={() => toggle("route")}><Route size={18} /></button>
       <button className={buttonClass(false)} title="Asetukset" aria-label="Asetukset" onClick={() => useMapStore.setState({ settingsOpen: true })}><Settings size={18} /></button>

@@ -1,5 +1,6 @@
+import { useRef } from "react";
 import { Crosshair, Loader2, MapPin, X } from "lucide-react";
-import { focusFirstNavigable, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
+import { handleRouteInputDropdownKey, handleRouteListDropdownKey } from "../domain/routeDropdownNav";
 import type { NominatimSearchHit } from "../../search/services/nominatimService";
 import type { MarkerSearchHit } from "../../markers/domain/markerSearch";
 
@@ -48,8 +49,12 @@ export function WaypointSearchInput({
   onSelectMarkerHit,
   onSelectSearchHit,
 }: WaypointSearchInputProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
   const badge = getPointBadge(idx, totalPoints);
   const showDropdown = isActiveSearch && (markerHits.length > 0 || searchResults.length > 0 || searching);
+  const getDropdownButtons = () =>
+    Array.from(resultsRef.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])") ?? []);
 
   return (
     <div className="relative">
@@ -58,6 +63,7 @@ export function WaypointSearchInput({
           {badge.text}
         </span>
         <input
+          ref={inputRef}
           type="text"
           value={value}
           placeholder={
@@ -69,22 +75,12 @@ export function WaypointSearchInput({
           }
           onChange={(e) => onInputChange(idx, e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") onRunSearch(idx, value);
-            if (e.key === "ArrowDown" && isActiveSearch) {
-              const resultsEl = e.currentTarget.closest(".space-y-1.5, div")?.parentElement?.querySelector<HTMLElement>(
-                `[data-route-results="${idx}"]`,
-              );
-              if (resultsEl) {
-                e.preventDefault();
-                e.stopPropagation();
-                focusFirstNavigable(resultsEl);
-              }
-            }
-            if (e.key === "Escape" && isActiveSearch) {
-              e.preventDefault();
-              e.stopPropagation();
-              onClearSearchDropdown();
-            }
+            handleRouteInputDropdownKey(e, {
+              showDropdown,
+              items: getDropdownButtons(),
+              onRunSearch: () => onRunSearch(idx, value),
+              onCloseDropdown: onClearSearchDropdown,
+            });
           }}
           className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         />
@@ -114,8 +110,22 @@ export function WaypointSearchInput({
 
       {showDropdown && (
         <div
+          ref={resultsRef}
+          role="listbox"
           data-route-results={idx}
-          onKeyDown={(e) => handleContainerArrowKeyDown(e, { onEscape: onClearSearchDropdown })}
+          onKeyDown={(e) => {
+            const items = getDropdownButtons();
+            const activeIndex =
+              document.activeElement instanceof HTMLButtonElement
+                ? items.indexOf(document.activeElement)
+                : -1;
+            handleRouteListDropdownKey(e, {
+              items,
+              activeIndex,
+              input: inputRef.current,
+              onCloseDropdown: onClearSearchDropdown,
+            });
+          }}
           className="mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
         >
           <div className="max-h-40 overflow-y-auto">
@@ -128,8 +138,12 @@ export function WaypointSearchInput({
               <button
                 key={`marker:${hit.id}`}
                 type="button"
-                onClick={() => onSelectMarkerHit(idx, hit)}
-                className="flex w-full items-center justify-between gap-2 border-b border-slate-100 px-2.5 py-1.5 text-left text-[11px] hover:bg-slate-100 last:border-b-0 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                role="option"
+                onClick={() => {
+                  onSelectMarkerHit(idx, hit);
+                  inputRef.current?.focus({ preventScroll: true });
+                }}
+                className="flex w-full items-center justify-between gap-2 border-b border-slate-100 px-2.5 py-1.5 text-left text-[11px] hover:bg-slate-100 focus:bg-blue-50 focus:text-blue-900 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/60 last:border-b-0 dark:border-zinc-800 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800 dark:focus:text-white"
               >
                 <div className="flex min-w-0 items-center gap-1.5">
                   <MapPin size={12} className="shrink-0" style={{ color: savedMarkerColor }} />
@@ -144,8 +158,12 @@ export function WaypointSearchInput({
               <button
                 key={`${hit.lat}-${hit.lon}-${i}`}
                 type="button"
-                onClick={() => onSelectSearchHit(idx, hit)}
-                className="block w-full border-b border-slate-100 px-2.5 py-1.5 text-left text-[11px] hover:bg-slate-100 last:border-b-0 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                role="option"
+                onClick={() => {
+                  onSelectSearchHit(idx, hit);
+                  inputRef.current?.focus({ preventScroll: true });
+                }}
+                className="block w-full border-b border-slate-100 px-2.5 py-1.5 text-left text-[11px] hover:bg-slate-100 focus:bg-blue-50 focus:text-blue-900 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/60 last:border-b-0 dark:border-zinc-800 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800 dark:focus:text-white"
               >
                 <div className="truncate">{hit.display_name}</div>
               </button>

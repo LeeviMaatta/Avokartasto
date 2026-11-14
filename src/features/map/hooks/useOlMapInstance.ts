@@ -54,7 +54,8 @@ export function useOlMapInstance({
 }: UseOlMapInstanceOptions) {
   useEffect(() => {
     const mapElement = elRef.current;
-    const { settings, editingFeatureId, activeUnsavedMeasurementId } = useMapStore.getState();
+    const { settings, editingFeatureId, activeUnsavedMeasurementId, selectedMeasurements } =
+      useMapStore.getState();
     let rafId: number | null = null;
     let centerRafId: number | null = null;
     let saveViewTimeout: number | null = null;
@@ -79,7 +80,12 @@ export function useOlMapInstance({
     const mLayer = new VectorLayer({
       className: "ol-vector-layer",
       source: measureSrc.current,
-      style: buildMeasurementLayerStyle(settings, editingFeatureId, activeUnsavedMeasurementId),
+      style: buildMeasurementLayerStyle(
+        settings,
+        editingFeatureId,
+        activeUnsavedMeasurementId,
+        selectedMeasurements,
+      ),
       zIndex: 100,
     });
     measureLayerRef.current = mLayer;

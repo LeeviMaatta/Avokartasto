@@ -44,6 +44,10 @@ export default function MapContainer() {
   const featuresVersion = useMapStore((s) => s.featuresVersion);
   const editingFeatureId = useMapStore((s) => s.editingFeatureId);
   const activeUnsavedMeasurementId = useMapStore((s) => s.activeUnsavedMeasurementId);
+  const selectedMeasurements = useMapStore((s) => s.selectedMeasurements);
+  const selectedSavedIds = selectedMeasurements
+    .filter((item) => item.savedId !== null)
+    .map((item) => item.savedId as number);
   const hiddenFeaturesSetting = useMapStore((s) => s.settings.hiddenFeatures);
   const showTileBoundaries = useDebugStore((s) => Boolean(s.settings.showTileBoundaries));
 
@@ -80,6 +84,7 @@ export default function MapContainer() {
     showTileBoundaries,
     editingFeatureId,
     activeUnsavedMeasurementId,
+    selectedMeasurements,
   });
 
   const { locating, geoError, setGeoError, handleLocateUser } = useMapNavigation({
@@ -115,11 +120,13 @@ export default function MapContainer() {
     markerFolders: settings.markerFolders ?? "[]",
     hiddenFeatures: hiddenFeaturesSetting ?? "[]",
     editingFeatureId,
+    selectedSavedIds,
   });
 
   useMapMeasurementInteractions({
     mapRef,
     measureSource: measureSrc,
+    featureSource: featSrc,
     profileRequest,
     tool,
     measurementType: settings.measurementType ?? "distance",

@@ -15,6 +15,7 @@ import {
   sampleElevationBilinear,
 } from "./terrain/terrainCostModel";
 import { findLowestClimbGridPath } from "./terrain/astarGridPathfinder";
+import { segmentTouchesWaterOnGrid } from "./terrain/chordCost";
 import { smoothGridPath } from "./terrain/pathSmoother";
 
 export {
@@ -79,6 +80,7 @@ export function routeMercatorWaypointsOnGrid(
     };
   }
 
+  const avoidWater = options.avoidWater ?? true;
   const original = measureMercatorPolylineStats(grid, waypointsMercator);
   const fullPath: [number, number][] = [waypointsMercator[0]];
 
@@ -90,8 +92,23 @@ export function routeMercatorWaypointsOnGrid(
     const rawGridPath = findLowestClimbGridPath(grid, startCell, endCell, options);
     const smoothed = smoothGridPath(grid, rawGridPath, options);
 
+    if (avoidWater && smoothed.length >= 2 && (grid.terrainFlags[startCell.y * grid.width + startCell.x] & TERRAIN_WATER) === 0) {
+      const sx = (startPt[0] - grid.minX) / grid.stepX;
+      const sy = (startPt[1] - grid.minY) / grid.stepY;
+      if (segmentTouchesWaterOnGrid(grid, sx, sy, smoothed[1].x, smoothed[1].y)) {
+        fullPath.push(gridCellToMercator(grid, smoothed[0]));
+      }
+    }
     for (let j = 1; j < smoothed.length - 1; j++) {
       fullPath.push(gridCellToMercator(grid, smoothed[j]));
+    }
+    if (avoidWater && smoothed.length >= 2 && (grid.terrainFlags[endCell.y * grid.width + endCell.x] & TERRAIN_WATER) === 0) {
+      const ex = (endPt[0] - grid.minX) / grid.stepX;
+      const ey = (endPt[1] - grid.minY) / grid.stepY;
+      const prev = smoothed[smoothed.length - 2];
+      if (segmentTouchesWaterOnGrid(grid, prev.x, prev.y, ex, ey)) {
+        fullPath.push(gridCellToMercator(grid, smoothed[smoothed.length - 1]));
+      }
     }
     fullPath.push(endPt);
   }

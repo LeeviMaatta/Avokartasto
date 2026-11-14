@@ -108,6 +108,7 @@ export function useGlobalKeyboardShortcuts(): void {
               tool: "none",
               editingFeatureId: null,
               activeUnsavedMeasurementId: null,
+              selectedMeasurements: [],
               selectedFeature: null,
               measure: null,
               profile: null,

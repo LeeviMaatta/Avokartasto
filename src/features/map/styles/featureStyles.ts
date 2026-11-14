@@ -6,6 +6,8 @@ import Point from "ol/geom/Point";
 import LineString from "ol/geom/LineString";
 import { getLength } from "ol/sphere";
 import { formatDistance } from "../../measurements/domain/measurementFormatting";
+import type { UiStyle } from "../../settings/model/settingTypes";
+import { createDistanceBadgeStyle } from "./distanceBadgeStyle";
 
 export const lineStyle = (color: string) =>
   new Style({
@@ -106,25 +108,28 @@ export interface MeasurementStyleOptions {
   hideByZoom?: boolean;
   minZoomForSegments?: number;
   isSelectedFeature?: (feature: any) => boolean;
+  showTotalOnly?: boolean;
+  theme?: "light" | "dark";
+  uiStyle?: UiStyle;
 }
 
-/** Checks whether a measurement feature matches the currently selected saved or unsaved measurement. */
+/** Checks whether a measurement feature matches any currently selected saved or unsaved measurement. */
 export function isSelectedMeasurementFeature(
   feature: any,
   editingFeatureId: number | null,
   activeUnsavedMeasurementId: string | null,
+  selectedMeasurements?: Array<{ savedId: number | null; unsavedId: string | null }>,
 ): boolean {
   const savedId = feature?.get?.("id");
   if (savedId !== undefined && savedId !== null) {
-    return editingFeatureId !== null && Number(savedId) === editingFeatureId;
+    const numericId = Number(savedId);
+    if (editingFeatureId !== null && numericId === editingFeatureId) return true;
+    return Boolean(selectedMeasurements?.some((item) => item.savedId === numericId));
   }
   const unsavedId = feature?.get?.("unsavedId");
-  return (
-    typeof unsavedId === "string" &&
-    unsavedId.length > 0 &&
-    activeUnsavedMeasurementId !== null &&
-    unsavedId === activeUnsavedMeasurementId
-  );
+  if (typeof unsavedId !== "string" || !unsavedId) return false;
+  if (activeUnsavedMeasurementId !== null && unsavedId === activeUnsavedMeasurementId) return true;
+  return Boolean(selectedMeasurements?.some((item) => item.unsavedId === unsavedId));
 }
 
 export const measurementStyle = (
@@ -155,43 +160,53 @@ export const measurementStyle = (
         : Infinity;
     const zoomAllowsSegments = !hideByZoom || currentZoom >= minZoomForSegments - 1e-6;
     const featureSelected = options?.isSelectedFeature ? options.isSelectedFeature(feature) : true;
+    const renderTotalOnly = !showSegments || Boolean(options?.showTotalOnly);
+    const badgeTheme = options?.theme === "dark" ? "dark" : "light";
+    const badgeUiStyle = options?.uiStyle ?? "modern";
 
-    if (showSegments && featureSelected && zoomAllowsSegments && geom instanceof LineString) {
-      const coords = geom.getCoordinates();
-      const segments = computeLogicalMeasurementSegments(coords, minSegmentDistanceM);
-      for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i];
-        const nextSeg = segments[i + 1];
-        if (
-          i < segments.length - 1 &&
-          (seg.endIdx - seg.startIdx > 1 || (nextSeg && nextSeg.endIdx - nextSeg.startIdx > 1))
-        ) {
+    if (featureSelected && zoomAllowsSegments && geom instanceof LineString) {
+      if (renderTotalOnly) {
+        const totalLength = getLength(geom, { projection: "EPSG:3857" });
+        if (totalLength > 2) {
           styles.push(
-            new Style({
-              geometry: new Point(seg.endCoord),
-              image: new CircleStyle({
-                radius: 3.5,
-                fill: new Fill({ color: strokeColor }),
-                stroke: new Stroke({ color: "#ffffff", width: 1.5 }),
-              }),
-            }),
+            createDistanceBadgeStyle(
+              geom.getCoordinateAt(0.5),
+              formatDistance(totalLength, units),
+              badgeTheme,
+              badgeUiStyle,
+            ),
           );
         }
-        styles.push(
-          new Style({
-            geometry: new Point(seg.midpoint),
-            text: new Text({
-              text: formatDistance(seg.lengthM, units),
-              font: "bold 11px system-ui, -apple-system, sans-serif",
-              fill: new Fill({ color: "#0f172a" }),
-              stroke: new Stroke({ color: "#ffffff", width: 3 }),
-              backgroundFill: new Fill({ color: "rgba(255, 255, 255, 0.9)" }),
-              backgroundStroke: new Stroke({ color: "#94a3b8", width: 1 }),
-              padding: [2, 4, 1, 4],
-              offsetY: -7,
-            }),
-          }),
-        );
+      } else {
+        const coords = geom.getCoordinates();
+        const segments = computeLogicalMeasurementSegments(coords, minSegmentDistanceM);
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i];
+          const nextSeg = segments[i + 1];
+          if (
+            i < segments.length - 1 &&
+            (seg.endIdx - seg.startIdx > 1 || (nextSeg && nextSeg.endIdx - nextSeg.startIdx > 1))
+          ) {
+            styles.push(
+              new Style({
+                geometry: new Point(seg.endCoord),
+                image: new CircleStyle({
+                  radius: 3.5,
+                  fill: new Fill({ color: strokeColor }),
+                  stroke: new Stroke({ color: "#ffffff", width: 1.5 }),
+                }),
+              }),
+            );
+          }
+          styles.push(
+            createDistanceBadgeStyle(
+              seg.midpoint,
+              formatDistance(seg.lengthM, units),
+              badgeTheme,
+              badgeUiStyle,
+            ),
+          );
+        }
       }
     }
     return styles;

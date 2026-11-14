@@ -62,10 +62,13 @@ export function MeasureSection({ draft, setDraft }: MeasureSectionProps) {
           />
           <span>Näytä mittausviivan välipisteiden osapituudet</span>
         </label>
+        <p className="ml-6 text-[11px] text-slate-500 dark:text-zinc-400">
+          Kun asetus on pois päältä tai useampi mittaus on valittuna samanaikaisesti, kartalla näytetään mittauksen kokonaismatka.
+        </p>
 
-        {draft.showSegmentLengths !== "0" && (
-          <div className="ml-6 space-y-3 rounded-lg border border-slate-200 bg-white/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-            <label className="block">
+        <div className="ml-6 space-y-3 rounded-lg border border-slate-200 bg-white/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+          {draft.showSegmentLengths !== "0" && (
+            <label className="block border-b border-slate-200 pb-2.5 dark:border-zinc-800">
               <div className="flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-400">
                 <span>Osapituusmerkintöjen vähimmäisväli:</span>
                 <span className="font-mono font-semibold text-slate-800 dark:text-zinc-200">
@@ -91,48 +94,48 @@ export function MeasureSection({ draft, setDraft }: MeasureSectionProps) {
                 Kun pisteet ovat tätä lähempänä toisiaan, välistä ohitetut pätkät lasketaan yhteen reittiä pitkin, jotta pituudet eivät vääristy.
               </p>
             </label>
+          )}
 
-            <div className="space-y-2 border-t border-slate-200 pt-2.5 dark:border-zinc-800">
-              <label className="flex cursor-pointer items-center gap-2.5">
+          <div className="space-y-2">
+            <label className="flex cursor-pointer items-center gap-2.5">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded accent-blue-600"
+                checked={draft.hideSegmentLengthsByZoom !== "0"}
+                onChange={(e) =>
+                  setDraft({ ...draft, hideSegmentLengthsByZoom: e.target.checked ? "1" : "0" })
+                }
+              />
+              <span className="text-xs font-medium text-slate-700 dark:text-zinc-300">
+                Piilota pisteiden välimatkat kauemmas zoomattaessa
+              </span>
+            </label>
+
+            {draft.hideSegmentLengthsByZoom !== "0" && (
+              <label className="block pl-6">
+                <div className="flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-400">
+                  <span>Vähimmäis zoom-taso merkinnöille:</span>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-zinc-200">
+                    zoom-taso {draft.segmentLengthsMinZoom ?? "13"}
+                  </span>
+                </div>
                 <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded accent-blue-600"
-                  checked={draft.hideSegmentLengthsByZoom !== "0"}
-                  onChange={(e) =>
-                    setDraft({ ...draft, hideSegmentLengthsByZoom: e.target.checked ? "1" : "0" })
-                  }
+                  type="range"
+                  min="5"
+                  max="18"
+                  step="1"
+                  className="mt-1.5 w-full cursor-pointer accent-blue-600"
+                  value={draft.segmentLengthsMinZoom ?? "13"}
+                  onChange={(e) => setDraft({ ...draft, segmentLengthsMinZoom: e.target.value })}
                 />
-                <span className="text-xs font-medium text-slate-700 dark:text-zinc-300">
-                  Piilota pisteiden välimatkat kauemmas zoomattaessa
-                </span>
+                <div className="mt-1 flex justify-between text-[11px] text-slate-500 dark:text-zinc-400">
+                  <span>zoom-taso 5 (kaukaa)</span>
+                  <span>zoom-taso 18 (läheltä)</span>
+                </div>
               </label>
-
-              {draft.hideSegmentLengthsByZoom !== "0" && (
-                <label className="block pl-6">
-                  <div className="flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-400">
-                    <span>Vähimmäis zoom-taso merkinnöille:</span>
-                    <span className="font-mono font-semibold text-slate-800 dark:text-zinc-200">
-                      zoom-taso {draft.segmentLengthsMinZoom ?? "13"}
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min="5"
-                    max="18"
-                    step="1"
-                    className="mt-1.5 w-full cursor-pointer accent-blue-600"
-                    value={draft.segmentLengthsMinZoom ?? "13"}
-                    onChange={(e) => setDraft({ ...draft, segmentLengthsMinZoom: e.target.value })}
-                  />
-                  <div className="mt-1 flex justify-between text-[11px] text-slate-500 dark:text-zinc-400">
-                    <span>zoom-taso 5 (kaukaa)</span>
-                    <span>zoom-taso 18 (läheltä)</span>
-                  </div>
-                </label>
-              )}
-            </div>
+            )}
           </div>
-        )}
+        </div>
 
         <label className="flex cursor-pointer items-center gap-2.5">
           <input

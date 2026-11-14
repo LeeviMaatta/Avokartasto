@@ -8,9 +8,14 @@ import {
   ensureUnsavedMeasurementId,
   findTargetMeasurementFeature,
   getFeatureFocusLonLat,
+  getUnsavedMeasurementFeatures,
+  removeAllUnsavedMeasurements,
   removeUnsavedMeasurementByGeojson,
   removeUnsavedMeasurementById,
 } from "../measurementSource";
+import { findMatchingEndpointFeatures } from "../measurementEndpointAction";
+import { focusNextUnsavedMeasurement, selectLinkedMeasurements } from "../measurementClickSelect";
+import { useMapStore } from "../../../../store/mapStore";
 
 describe("measurementSource selective cleanup", () => {
   it("preserves unsaved measurements when clearing saved edit clones", () => {
@@ -122,5 +127,102 @@ describe("measurementSource selective cleanup", () => {
 
     expect(getFeatureFocusLonLat("")).toBeNull();
     expect(getFeatureFocusLonLat("not-json")).toBeNull();
+  });
+
+  it("finds all features sharing a junction endpoint and removes only unsaved features on bulk clear", () => {
+    const source = new VectorSource();
+    const shared: [number, number] = [100, 100];
+    const m1 = new Feature({ geometry: new LineString([[0, 0], shared]) });
+    const m2 = new Feature({ geometry: new LineString([shared, [200, 200]]) });
+    const m3 = new Feature({ geometry: new LineString([[500, 500], [600, 600]]) });
+    const savedClone = new Feature({ geometry: new LineString([[300, 300], [400, 400]]) });
+    savedClone.set("id", 55);
+    ensureUnsavedMeasurementId(m1);
+    ensureUnsavedMeasurementId(m2);
+    ensureUnsavedMeasurementId(m3);
+    source.addFeatures([m1, m2, m3, savedClone]);
+
+    expect(findMatchingEndpointFeatures(source, shared, 0.05)).toEqual([m1, m2]);
+
+    expect(removeAllUnsavedMeasurements(source)).toBe(3);
+    expect(source.getFeatures()).toEqual([savedClone]);
+  });
+
+  it("deduplicates saved features across sources and clones linked saved measurements on group selection", () => {
+    const measureSource = new VectorSource();
+    const featureSource = new VectorSource();
+    const shared: [number, number] = [100, 100];
+
+    const unsaved = new Feature({ geometry: new LineString([shared, [200, 200]]) });
+    const id1 = ensureUnsavedMeasurementId(unsaved);
+    measureSource.addFeature(unsaved);
+
+    const savedDb = new Feature({ geometry: new LineString([[0, 0], shared]) });
+    savedDb.set("id", 55);
+    savedDb.set("title", "Tallennettu");
+    const savedClone = new Feature({ geometry: new LineString([[0, 0], shared]) });
+    savedClone.set("id", 55);
+    featureSource.addFeature(savedDb);
+    measureSource.addFeature(savedClone);
+
+    const matched = findMatchingEndpointFeatures([measureSource, featureSource], shared, 0.05);
+    expect(matched).toHaveLength(2);
+    expect(matched).toEqual([unsaved, savedClone]);
+
+    measureSource.removeFeature(savedClone);
+    selectLinkedMeasurements(measureSource, featureSource, ["saved:55", id1], id1);
+
+    const state = useMapStore.getState();
+    expect(state.selectedMeasurements.map((m) => m.savedId ?? m.unsavedId)).toEqual([55, id1]);
+    expect(state.activeUnsavedMeasurementId).toBe(id1);
+    expect(measureSource.getFeatures().some((f) => f.get("id") === 55)).toBe(true);
+
+    useMapStore.setState({
+      selectedMeasurements: [],
+      editingFeatureId: null,
+      activeUnsavedMeasurementId: null,
+      measure: null,
+    });
+  });
+
+  it("focuses the next remaining unsaved measurement after deletion", () => {
+    const source = new VectorSource();
+    const u1 = new Feature({ geometry: new LineString([[0, 0], [100, 0]]) });
+    const u2 = new Feature({ geometry: new LineString([[0, 0], [200, 0]]) });
+    const u3 = new Feature({ geometry: new LineString([[0, 0], [300, 0]]) });
+    const savedClone = new Feature({ geometry: new LineString([[0, 0], [400, 0]]) });
+    savedClone.set("id", 77);
+    const id1 = ensureUnsavedMeasurementId(u1);
+    const id2 = ensureUnsavedMeasurementId(u2);
+    const id3 = ensureUnsavedMeasurementId(u3);
+    source.addFeatures([u1, u2, u3, savedClone]);
+
+    expect(getUnsavedMeasurementFeatures(source)).toEqual([u1, u2, u3]);
+
+    // Remove middle (index 1 -> u2) -> should focus u3
+    source.removeFeature(u2);
+    const lineA = focusNextUnsavedMeasurement(source, 1);
+    expect(lineA).toBeInstanceOf(LineString);
+    expect(useMapStore.getState().activeUnsavedMeasurementId).toBe(id3);
+    expect(useMapStore.getState().selectedMeasurements.map((m) => m.unsavedId)).toEqual([id3]);
+    expect(source.getFeatures().some((f) => f.get("id") === 77)).toBe(false);
+
+    // Remove last remaining (index 1 -> u3) -> should clamp to u1
+    source.removeFeature(u3);
+    const lineB = focusNextUnsavedMeasurement(source, 1);
+    expect(lineB).toBeInstanceOf(LineString);
+    expect(useMapStore.getState().activeUnsavedMeasurementId).toBe(id1);
+
+    // Remove final unsaved -> returns null
+    source.removeFeature(u1);
+    expect(focusNextUnsavedMeasurement(source, 0)).toBeNull();
+    expect(id2).toBeTruthy();
+
+    useMapStore.setState({
+      selectedMeasurements: [],
+      editingFeatureId: null,
+      activeUnsavedMeasurementId: null,
+      measure: null,
+    });
   });
 });

@@ -100,4 +100,78 @@ describe("featureStyles segment spacing and zoom visibility", () => {
     expect((whenNoneSelected(unsaved1, resZ14) as unknown[]).length).toBe(1);
     expect((whenNoneSelected(saved5, resZ14) as unknown[]).length).toBe(1);
   });
+
+  it("shows a single total-distance label when segment labels are disabled or multiple measurements are selected", () => {
+    const base = fromLonLat([24.94, 60.17]) as [number, number];
+    const coords: [number, number][] = [
+      base,
+      [base[0] + 600, base[1]],
+      [base[0] + 1200, base[1]],
+      [base[0] + 1800, base[1]],
+    ];
+    const feature = new Feature({ geometry: new LineString(coords), unsavedId: "unsaved-1" });
+    const resZ11 = 156543.03392804097 / 2 ** 11;
+    const resZ14 = 156543.03392804097 / 2 ** 14;
+
+    const totalOnlyWhenSettingOff = measurementStyle("#2563eb", false, "metric", {
+      minSegmentDistanceM: 500,
+      hideByZoom: true,
+      minZoomForSegments: 13,
+      isSelectedFeature: (f) => isSelectedMeasurementFeature(f, null, "unsaved-1"),
+    });
+    const stylesOffAtZ11 = totalOnlyWhenSettingOff(feature, resZ11) as unknown[];
+    expect(stylesOffAtZ11).toHaveLength(1);
+    const stylesOffAtZ14 = totalOnlyWhenSettingOff(feature, resZ14) as unknown[];
+    expect(stylesOffAtZ14).toHaveLength(2);
+
+    const totalOnlyAlwaysVisible = measurementStyle("#2563eb", false, "metric", {
+      minSegmentDistanceM: 500,
+      hideByZoom: false,
+      minZoomForSegments: 13,
+      isSelectedFeature: (f) => isSelectedMeasurementFeature(f, null, "unsaved-1"),
+    });
+    expect(totalOnlyAlwaysVisible(feature, resZ11) as unknown[]).toHaveLength(2);
+
+    const totalOnlyWhenMultiSelected = measurementStyle("#2563eb", true, "metric", {
+      minSegmentDistanceM: 500,
+      hideByZoom: true,
+      minZoomForSegments: 13,
+      showTotalOnly: true,
+      isSelectedFeature: (f) =>
+        isSelectedMeasurementFeature(f, null, "unsaved-1", [
+          { savedId: null, unsavedId: "unsaved-1" },
+          { savedId: null, unsavedId: "unsaved-2" },
+        ]),
+    });
+    expect(totalOnlyWhenMultiSelected(feature, resZ11) as unknown[]).toHaveLength(1);
+    const multiStylesAtZ14 = totalOnlyWhenMultiSelected(feature, resZ14) as unknown[];
+    expect(multiStylesAtZ14).toHaveLength(2);
+  });
+
+  it("adapts distance badge styling to active theme and uiStyle", () => {
+    const base = fromLonLat([24.94, 60.17]) as [number, number];
+    const coords: [number, number][] = [base, [base[0] + 1000, base[1]]];
+    const feature = new Feature({ geometry: new LineString(coords), unsavedId: "unsaved-1" });
+    const resZ14 = 156543.03392804097 / 2 ** 14;
+
+    const retroDark = measurementStyle("#2563eb", false, "metric", {
+      hideByZoom: false,
+      theme: "dark",
+      uiStyle: "retro",
+      isSelectedFeature: (f) => isSelectedMeasurementFeature(f, null, "unsaved-1"),
+    })(feature, resZ14) as Array<{ getText?: () => { getBackgroundFill?: () => { getColor?: () => string }; getFont?: () => string } | null }>;
+
+    const badgeText = retroDark[1]?.getText?.();
+    expect(badgeText?.getBackgroundFill?.()?.getColor?.()).toBe("#2b2b2b");
+    expect(badgeText?.getFont?.()).toContain("MS Sans Serif");
+
+    const modernLight = measurementStyle("#2563eb", false, "metric", {
+      hideByZoom: false,
+      theme: "light",
+      uiStyle: "modern",
+      isSelectedFeature: (f) => isSelectedMeasurementFeature(f, null, "unsaved-1"),
+    })(feature, resZ14) as Array<{ getText?: () => { getBackgroundFill?: () => { getColor?: () => string } } | null }>;
+
+    expect(modernLight[1]?.getText?.()?.getBackgroundFill?.()?.getColor?.()).toBe("rgba(255, 255, 255, 0.95)");
+  });
 });

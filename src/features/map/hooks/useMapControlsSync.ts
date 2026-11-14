@@ -19,6 +19,7 @@ import DragPan from "ol/interaction/DragPan";
 import KeyboardZoom from "ol/interaction/KeyboardZoom";
 import Kinetic from "ol/Kinetic";
 import type { LocalSource } from "../../../infrastructure/tauri";
+import type { SelectedMeasurementItem } from "../../measurements/domain/measurementSelection";
 import { buildMeasurementLayerStyle } from "./layerSyncShared";
 import { createTileDebugLayer } from "./tileDebugLayer";
 
@@ -33,6 +34,7 @@ interface UseMapControlsSyncOptions {
   showTileBoundaries: boolean;
   editingFeatureId: number | null;
   activeUnsavedMeasurementId: string | null;
+  selectedMeasurements: SelectedMeasurementItem[];
 }
 
 export function useMapControlsSync({
@@ -46,6 +48,7 @@ export function useMapControlsSync({
   showTileBoundaries,
   editingFeatureId,
   activeUnsavedMeasurementId,
+  selectedMeasurements,
 }: UseMapControlsSyncOptions) {
   const scaleLineRef = useRef<ScaleLine | null>(null);
   const rotateControlRef = useRef<Rotate | null>(null);
@@ -249,12 +252,18 @@ export function useMapControlsSync({
   useEffect(() => {
     if (!measureLayerRef.current) return;
     measureLayerRef.current.setStyle(
-      buildMeasurementLayerStyle(settings, editingFeatureId, activeUnsavedMeasurementId),
+      buildMeasurementLayerStyle(
+        settings,
+        editingFeatureId,
+        activeUnsavedMeasurementId,
+        selectedMeasurements,
+      ),
     );
   }, [
     measureLayerRef,
     editingFeatureId,
     activeUnsavedMeasurementId,
+    selectedMeasurements,
     settings.showSegmentLengths,
     settings.segmentLengthMinDistance,
     settings.hideSegmentLengthsByZoom,
@@ -262,6 +271,8 @@ export function useMapControlsSync({
     settings.measurementUnits,
     settings.savedMeasurementColor,
     settings.unsavedMeasurementColor,
+    settings.theme,
+    settings.uiStyle,
   ]);
 
   useEffect(() => {

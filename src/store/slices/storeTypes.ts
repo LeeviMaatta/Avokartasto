@@ -1,6 +1,7 @@
 import type { StateCreator } from "zustand";
 import type { LocalSource } from "../../infrastructure/tauri";
 import type { Measure, ProfilePoint, SelectedFeature, Tool } from "../../features/map/model/mapTypes";
+import type { SelectedMeasurementItem } from "../../features/measurements/domain/measurementSelection";
 import type { RouteMode, RoutePoint, RouteResult } from "../../features/routing/services/routeService";
 
 export interface MapState {
@@ -18,6 +19,8 @@ export interface MapState {
   measure: Measure | null;
   editingFeatureId: number | null;
   activeUnsavedMeasurementId: string | null;
+  selectedMeasurements: SelectedMeasurementItem[];
+  measurementLinks: Record<string, string[]>;
   profile: ProfilePoint[] | null;
   profileVisible: boolean;
   profileError: string | null;
@@ -49,6 +52,9 @@ export interface MapState {
   bumpFeatures: () => void;
   clearPersistenceError: () => void;
   toggleTool: (nextTool: Tool) => void;
+  linkMeasurements: (idA: string, idB: string) => void;
+  unlinkMeasurement: (id: string) => void;
+  clearMeasurementSelection: () => void;
   setRoutePoint: (index: number, point: RoutePoint | null) => void;
   addRouteWaypoint: () => void;
   removeRoutePoint: (index: number) => void;

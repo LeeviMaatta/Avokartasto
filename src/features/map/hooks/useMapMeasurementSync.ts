@@ -4,69 +4,38 @@ import Feature from "ol/Feature";
 import GeoJSON from "ol/format/GeoJSON";
 import LineString from "ol/geom/LineString";
 import Point from "ol/geom/Point";
-import { fromLonLat, toLonLat } from "ol/proj";
+import { fromLonLat } from "ol/proj";
 import { getLength } from "ol/sphere";
 import type VectorSource from "ol/source/Vector";
 import { useMapStore } from "../../../store/mapStore";
-import { elevationBatch } from "../../location-info/services/elevationService";
+import {
+  focusNextUnsavedMeasurement,
+  focusSingleMeasurementItem,
+  selectLinkedMeasurements,
+} from "../../measurements/domain/measurementClickSelect";
+import { fetchLineElevationProfile } from "../../measurements/domain/measurementProfile";
+import {
+  getLinkedMeasurementGroup,
+  toMeasurementLinkKey,
+  updateMeasurementItemInSelection,
+  type SelectedMeasurementItem,
+} from "../../measurements/domain/measurementSelection";
 import {
   clearSavedEditFeatures,
   findTargetMeasurementFeature,
+  getUnsavedMeasurementFeatures,
+  removeAllUnsavedMeasurements,
   removeUnsavedMeasurementByGeojson,
   removeUnsavedMeasurementById,
 } from "../../measurements/domain/measurementSource";
 import type { RoutePoint, RouteResult } from "../../routing/services/routeService";
+import {
+  isFeatureHiddenBySettings,
+  syncHiddenEditedMeasurements,
+  syncRouteFeaturesToSource,
+} from "./mapLayerSyncHelpers";
 
-export async function fetchLineElevationProfile(
-  geom: LineString,
-  profileRequest: MutableRefObject<number>,
-) {
-  const length = getLength(geom, { projection: "EPSG:3857" });
-  const reqId = ++profileRequest.current;
-  const n = Math.min(100, Math.max(2, Math.ceil(length / 100) + 1));
-  const fractions = Array.from({ length: n }, (_, i) => i / (n - 1));
-  const pts = fractions.map((f) => toLonLat(geom.getCoordinateAt(f)) as [number, number]);
-  try {
-    const elev = await elevationBatch(pts);
-    if (reqId !== profileRequest.current) return;
-    useMapStore.setState({
-      profile: fractions.map((f, i) => ({ dist: f * length, elev: elev[i] })),
-      profileVisible: false,
-    });
-  } catch (err) {
-    if (reqId === profileRequest.current) useMapStore.setState({ profileError: String(err) });
-  }
-}
-
-export function isFeatureHiddenBySettings(
-  featureId: number,
-  folderId: string | null | undefined,
-  settings: Record<string, string>,
-) {
-  try {
-    const hiddenIds: unknown = JSON.parse(settings.hiddenFeatures ?? "[]");
-    if (Array.isArray(hiddenIds) && hiddenIds.includes(featureId)) return true;
-  } catch {
-    // Sivuutetaan virheellinen JSON
-  }
-  if (folderId) {
-    try {
-      const folders = JSON.parse(settings.markerFolders ?? "[]") as Array<{
-        id?: string;
-        visible?: boolean;
-      }>;
-      if (
-        Array.isArray(folders) &&
-        folders.some((folder) => folder?.id === folderId && folder.visible === false)
-      ) {
-        return true;
-      }
-    } catch {
-      // Sivuutetaan virheellinen JSON
-    }
-  }
-  return false;
-}
+export { fetchLineElevationProfile };
 
 interface UseMapMeasurementSyncOptions {
   mapRef: RefObject<OlMap | null>;
@@ -75,6 +44,7 @@ interface UseMapMeasurementSyncOptions {
   routeSrc: MutableRefObject<VectorSource>;
   pendingMarkerFeature: MutableRefObject<Feature | null>;
   profileRequest: MutableRefObject<number>;
+  tool: string;
   pendingMarker: [number, number] | null;
   routePoints: (RoutePoint | null)[];
   routeResult: RouteResult | null;
@@ -90,6 +60,7 @@ export function useMapMeasurementSync({
   routeSrc,
   pendingMarkerFeature,
   profileRequest,
+  tool,
   pendingMarker,
   routePoints,
   routeResult,
@@ -97,6 +68,7 @@ export function useMapMeasurementSync({
   markerFoldersSetting,
 }: UseMapMeasurementSyncOptions) {
   useEffect(() => {
+    let lastRemovedUnsavedIndex: number | undefined;
     const removeMeasurementFeature = (event: Event) => {
       const detail = (
         event as CustomEvent<{
@@ -108,10 +80,48 @@ export function useMapMeasurementSync({
       if (detail?.savedId !== undefined && detail?.savedId !== null) {
         clearSavedEditFeatures(measureSrc.current, detail.savedId);
       } else {
-        if (detail?.unsavedId) removeUnsavedMeasurementById(measureSrc.current, detail.unsavedId);
+        if (detail?.unsavedId) {
+          const idx = getUnsavedMeasurementFeatures(measureSrc.current).findIndex(
+            (f) => f.get("unsavedId") === detail.unsavedId,
+          );
+          if (idx >= 0) lastRemovedUnsavedIndex = idx;
+          removeUnsavedMeasurementById(measureSrc.current, detail.unsavedId);
+          useMapStore.getState().unlinkMeasurement(detail.unsavedId);
+        }
         if (detail?.geojson) removeUnsavedMeasurementByGeojson(measureSrc.current, detail.geojson);
       }
       profileRequest.current += 1;
+    };
+
+    const handleFocusNextUnsaved = (event: Event) => {
+      const detail = (event as CustomEvent<{ preferredIndex?: number } | undefined>).detail;
+      const preferredIndex = detail?.preferredIndex ?? lastRemovedUnsavedIndex;
+      lastRemovedUnsavedIndex = undefined;
+      const line = focusNextUnsavedMeasurement(measureSrc.current, preferredIndex);
+      if (line) void fetchLineElevationProfile(line, profileRequest);
+    };
+
+    const handleSelectLinked = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ linkKey?: string | null; savedId?: number | null; unsavedId?: string | null }>
+      ).detail;
+      const state = useMapStore.getState();
+      const targetKey =
+        detail?.linkKey ??
+        toMeasurementLinkKey({
+          savedId: detail?.savedId ?? state.editingFeatureId,
+          unsavedId: detail?.unsavedId ?? state.activeUnsavedMeasurementId,
+        });
+      if (!targetKey) return;
+      const groupKeys = getLinkedMeasurementGroup(state.measurementLinks, targetKey);
+      selectLinkedMeasurements(measureSrc.current, featSrc.current, groupKeys, targetKey);
+    };
+
+    const handleFocusSingle = (event: Event) => {
+      const detail = (event as CustomEvent<{ item?: SelectedMeasurementItem }>).detail;
+      if (!detail?.item) return;
+      const line = focusSingleMeasurementItem(measureSrc.current, detail.item);
+      if (line) void fetchLineElevationProfile(line, profileRequest);
     };
 
     const handleOpenMeasurementEditor = (event: Event) => {
@@ -166,16 +176,25 @@ export function useMapMeasurementSync({
           null;
         if (targetFeature) targetFeature.setGeometry(geometry);
         const length = getLength(geometry, { projection: "EPSG:3857" });
+        const prevSelection = useMapStore.getState().selectedMeasurements;
+        const nextSelection = updateMeasurementItemInSelection(prevSelection, {
+          savedId: detail.savedId ?? null,
+          unsavedId: detail.unsavedId ?? null,
+          length,
+          kind: "distance",
+        });
         if (detail.profile && detail.profile.length > 0) {
           profileRequest.current += 1;
           useMapStore.setState({
             measure: { length, geojson: detail.geojson, kind: "distance" },
+            selectedMeasurements: nextSelection,
             profile: detail.profile,
             profileError: null,
           });
         } else {
           useMapStore.setState({
             measure: { length, geojson: detail.geojson, kind: "distance" },
+            selectedMeasurements: nextSelection,
             profile: null,
             profileError: null,
           });
@@ -186,13 +205,27 @@ export function useMapMeasurementSync({
       }
     };
 
+    const handleClearUnsaved = () => {
+      lastRemovedUnsavedIndex = undefined;
+      removeAllUnsavedMeasurements(measureSrc.current);
+      profileRequest.current += 1;
+    };
+
     window.addEventListener("remove-measurement-feature", removeMeasurementFeature);
     window.addEventListener("open-measurement-editor", handleOpenMeasurementEditor);
     window.addEventListener("replace-measurement-geometry", replaceMeasurementGeometry);
+    window.addEventListener("select-linked-measurements", handleSelectLinked);
+    window.addEventListener("focus-single-measurement", handleFocusSingle);
+    window.addEventListener("focus-next-unsaved-measurement", handleFocusNextUnsaved);
+    window.addEventListener("clear-unsaved-measurements", handleClearUnsaved);
     return () => {
       window.removeEventListener("remove-measurement-feature", removeMeasurementFeature);
       window.removeEventListener("open-measurement-editor", handleOpenMeasurementEditor);
       window.removeEventListener("replace-measurement-geometry", replaceMeasurementGeometry);
+      window.removeEventListener("select-linked-measurements", handleSelectLinked);
+      window.removeEventListener("focus-single-measurement", handleFocusSingle);
+      window.removeEventListener("focus-next-unsaved-measurement", handleFocusNextUnsaved);
+      window.removeEventListener("clear-unsaved-measurements", handleClearUnsaved);
     };
   }, [measureSrc, profileRequest]);
 
@@ -208,65 +241,16 @@ export function useMapMeasurementSync({
   }, [mapRef, featSrc, pendingMarkerFeature, pendingMarker]);
 
   useEffect(() => {
-    routeSrc.current.clear();
-    if (routeResult && routeResult.coordinates.length >= 2) {
-      const lineCoords = routeResult.coordinates.map((c) => fromLonLat(c));
-      const lineFeature = new Feature({ geometry: new LineString(lineCoords) });
-      routeSrc.current.addFeature(lineFeature);
-      const map = mapRef.current;
-      if (map) {
-        const extent = lineFeature.getGeometry()?.getExtent();
-        if (extent) {
-          map.getView().fit(extent, { padding: [80, 80, 80, 80], duration: 400, maxZoom: 15 });
-        }
-      }
-    }
-    routePoints.forEach((pt, idx) => {
-      if (!pt) return;
-      const isStart = idx === 0;
-      const isEnd = idx === routePoints.length - 1;
-      routeSrc.current.addFeature(
-        new Feature({
-          geometry: new Point(fromLonLat(pt.coord)),
-          routeLabel: isStart ? "A" : isEnd ? "B" : String(idx),
-          routeColor: isStart ? "#16a34a" : isEnd ? "#dc2626" : "#2563eb",
-        }),
-      );
-    });
-  }, [mapRef, routeSrc, routePoints, routeResult]);
+    syncRouteFeaturesToSource(
+      mapRef.current,
+      routeSrc.current,
+      routePoints,
+      routeResult,
+      tool === "route",
+    );
+  }, [mapRef, routeSrc, routePoints, routeResult, tool]);
 
   useEffect(() => {
-    const state = useMapStore.getState();
-    try {
-      const parsed = JSON.parse(hiddenFeaturesSetting ?? "[]");
-      if (Array.isArray(parsed)) {
-        parsed.forEach((id) => {
-          if (Number.isInteger(id)) clearSavedEditFeatures(measureSrc.current, id);
-        });
-      }
-    } catch {
-      // Sivuutetaan virheellinen JSON
-    }
-    const editedId = state.editingFeatureId;
-    if (
-      editedId !== null &&
-      isFeatureHiddenBySettings(editedId, state.selectedFeature?.folder_id, state.settings)
-    ) {
-      clearSavedEditFeatures(measureSrc.current, editedId);
-      profileRequest.current += 1;
-      useMapStore.setState({
-        editingFeatureId: null,
-        measure: null,
-        profile: null,
-        profileVisible: false,
-        profileError: null,
-        selectedFeature: null,
-      });
-      return;
-    }
-    const sel = state.selectedFeature;
-    if (sel && isFeatureHiddenBySettings(sel.id, sel.folder_id, state.settings)) {
-      useMapStore.setState({ selectedFeature: null });
-    }
+    syncHiddenEditedMeasurements(measureSrc.current, profileRequest, hiddenFeaturesSetting);
   }, [measureSrc, profileRequest, hiddenFeaturesSetting, markerFoldersSetting]);
 }

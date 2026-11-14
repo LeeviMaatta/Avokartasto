@@ -9,11 +9,24 @@ interface MapFeaturesOptions {
   markerFolders: string;
   hiddenFeatures: string;
   editingFeatureId?: number | null;
+  selectedSavedIds?: number[];
 }
 
-export function useMapFeatures({ featureSource, featuresVersion, markerFolders, hiddenFeatures, editingFeatureId }: MapFeaturesOptions) {
+export function useMapFeatures({
+  featureSource,
+  featuresVersion,
+  markerFolders,
+  hiddenFeatures,
+  editingFeatureId,
+  selectedSavedIds = [],
+}: MapFeaturesOptions) {
+  const selectedSavedKey = selectedSavedIds.join(",");
   useEffect(() => {
     let cancelled = false;
+    const editedSavedSet = new Set<number>(selectedSavedIds);
+    if (editingFeatureId !== undefined && editingFeatureId !== null) {
+      editedSavedSet.add(editingFeatureId);
+    }
     void listFeatures().then((rows) => {
       if (cancelled) return;
       featureSource.current.clear();
@@ -41,7 +54,7 @@ export function useMapFeatures({ featureSource, featuresVersion, markerFolders, 
         hiddenFeatureIds = new Set();
       }
       rows.forEach((row) => {
-        if (hiddenFeatureIds.has(row.id) || row.id === editingFeatureId) return;
+        if (hiddenFeatureIds.has(row.id) || editedSavedSet.has(row.id)) return;
         if (row.folder_id && knownFolders.has(row.folder_id) && !visibleFolders.has(row.folder_id)) return;
         try {
           featureSource.current.addFeatures(format.readFeatures({
@@ -57,5 +70,5 @@ export function useMapFeatures({ featureSource, featuresVersion, markerFolders, 
     return () => {
       cancelled = true;
     };
-  }, [featureSource, featuresVersion, markerFolders, hiddenFeatures, editingFeatureId]);
+  }, [featureSource, featuresVersion, markerFolders, hiddenFeatures, editingFeatureId, selectedSavedKey]);
 }

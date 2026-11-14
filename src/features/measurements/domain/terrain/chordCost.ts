@@ -11,6 +11,34 @@ import {
   type ResolvedRoutingWeights,
 } from "./terrainCostModel";
 
+/** Tarkistaa leikkaako kahden murto-osiluvuin annetun hilakoordinaatin välinen jana vesiruutua. */
+export function segmentTouchesWaterOnGrid(
+  grid: TerrainGrid,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): boolean {
+  const span = Math.hypot(bx - ax, by - ay);
+  const substeps = Math.max(2, Math.ceil(span * 6));
+  for (let s = 0; s <= substeps; s++) {
+    const t = s / substeps;
+    const gx = ax + (bx - ax) * t;
+    const gy = ay + (by - ay) * t;
+    const fx0 = Math.max(0, Math.min(grid.width - 1, Math.floor(gx)));
+    const fx1 = Math.max(0, Math.min(grid.width - 1, Math.ceil(gx)));
+    const fy0 = Math.max(0, Math.min(grid.height - 1, Math.floor(gy)));
+    const fy1 = Math.max(0, Math.min(grid.height - 1, Math.ceil(gy)));
+    const flags =
+      grid.terrainFlags[fy0 * grid.width + fx0] |
+      grid.terrainFlags[fy0 * grid.width + fx1] |
+      grid.terrainFlags[fy1 * grid.width + fx0] |
+      grid.terrainFlags[fy1 * grid.width + fx1];
+    if ((flags & TERRAIN_WATER) !== 0) return true;
+  }
+  return false;
+}
+
 export function chordCostOnGrid(
   grid: TerrainGrid,
   a: GridPoint,
@@ -25,7 +53,7 @@ export function chordCostOnGrid(
   swampMultipliers: Float32Array | null = null,
 ): number {
   const gridSpan = Math.hypot(b.x - a.x, b.y - a.y);
-  const substeps = Math.max(1, Math.ceil(gridSpan * 4));
+  const substeps = Math.max(2, Math.ceil(gridSpan * 6));
   const totalDistM = cellDistanceM(grid, a.x, a.y, b.x, b.y);
   const stepDistM = totalDistM / substeps;
   const startFlags = grid.terrainFlags[a.y * grid.width + a.x];
@@ -41,6 +69,20 @@ export function chordCostOnGrid(
     const t = s / substeps;
     const gx = a.x + (b.x - a.x) * t;
     const gy = a.y + (b.y - a.y) * t;
+    const fx0 = Math.max(0, Math.min(grid.width - 1, Math.floor(gx)));
+    const fx1 = Math.max(0, Math.min(grid.width - 1, Math.ceil(gx)));
+    const fy0 = Math.max(0, Math.min(grid.height - 1, Math.floor(gy)));
+    const fy1 = Math.max(0, Math.min(grid.height - 1, Math.ceil(gy)));
+    const waterQuadFlags =
+      grid.terrainFlags[fy0 * grid.width + fx0] |
+      grid.terrainFlags[fy0 * grid.width + fx1] |
+      grid.terrainFlags[fy1 * grid.width + fx0] |
+      grid.terrainFlags[fy1 * grid.width + fx1];
+
+    if (!isBaselineStep && weights.avoidWater && !allowWater && (waterQuadFlags & TERRAIN_WATER) !== 0) {
+      return Infinity;
+    }
+
     const x0 = Math.max(0, Math.min(grid.width - 1, Math.round(gx - 0.35)));
     const x1 = Math.max(0, Math.min(grid.width - 1, Math.round(gx + 0.35)));
     const y0 = Math.max(0, Math.min(grid.height - 1, Math.round(gy - 0.35)));
@@ -51,10 +93,6 @@ export function chordCostOnGrid(
       grid.terrainFlags[y0 * grid.width + x1] |
       grid.terrainFlags[y1 * grid.width + x0] |
       grid.terrainFlags[y1 * grid.width + x1];
-
-    if (!isBaselineStep && weights.avoidWater && !allowWater && (quadFlags & TERRAIN_WATER) !== 0) {
-      return Infinity;
-    }
 
     if (
       !isBaselineStep &&
@@ -88,8 +126,10 @@ export function chordCostOnGrid(
     if (weights.avoidWater && (centerFlags & TERRAIN_WATER) !== 0) {
       if (!isBaselineStep && !allowWater) return Infinity;
       terrainMultiplier = 500;
+    } else if (swampMultipliers && swampMultipliers[centerIdx] > 0) {
+      terrainMultiplier = swampMultipliers[centerIdx];
     } else if (weights.avoidSwamp && (centerFlags & TERRAIN_SWAMP) !== 0) {
-      terrainMultiplier = swampMultipliers ? swampMultipliers[centerIdx] : weights.swampMultiplier;
+      terrainMultiplier = weights.swampMultiplier;
     }
 
     const elev = sampleElevationBilinear(

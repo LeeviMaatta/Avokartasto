@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Download, Save, Trash2, X } from "lucide-react";
+import { BarChart3, Download, Link2, Save, Trash2, X } from "lucide-react";
 import { useMapStore } from "../../../store/mapStore";
 import { exportMeasurement as saveMeasurementFile } from "../domain/measurementExport";
 import { formatArea, formatDistance } from "../domain/measurementFormatting";
+import {
+  getLinkedMeasurementGroup,
+  toMeasurementLinkKey,
+} from "../domain/measurementSelection";
 import MarkerEditor, { type MarkerFolder } from "../../markers/components/MarkerEditor";
 import { SelectedMarkerBar } from "../../markers/components/SelectedMarkerBar";
 import { useMarkerWorkflow } from "../../markers/hooks/useMarkerWorkflow";
 import { useMeasurementWorkflow } from "../hooks/useMeasurementWorkflow";
+import { MultiMeasurementBar } from "./MultiMeasurementBar";
 import { TerrainOptionsPopover } from "./TerrainOptionsPopover";
 import { focusMapViewport, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 import { isTextInputTarget } from "../../settings/model/keyboardShortcuts";
@@ -31,6 +36,8 @@ export default function MeasureTool() {
   const bumpFeatures = useMapStore((s) => s.bumpFeatures);
   const editingFeatureId = useMapStore((s) => s.editingFeatureId);
   const activeUnsavedMeasurementId = useMapStore((s) => s.activeUnsavedMeasurementId);
+  const selectedMeasurements = useMapStore((s) => s.selectedMeasurements);
+  const measurementLinks = useMapStore((s) => s.measurementLinks);
   const units = useMapStore((s) => s.settings.measurementUnits ?? "metric");
   const areaUnit = useMapStore((s) => s.settings.areaUnit ?? "auto");
   const measurementType = useMapStore((s) => s.settings.measurementType ?? "distance");
@@ -123,19 +130,30 @@ export default function MeasureTool() {
         if (deleted) focusMapViewport();
       });
     };
-  } else if (tool === "measure" || Boolean(selectedFeature) || Boolean(activeUnsavedMeasurementId)) {
+  } else if (
+    tool === "measure" ||
+    Boolean(selectedFeature) ||
+    Boolean(activeUnsavedMeasurementId) ||
+    selectedMeasurements.length > 0
+  ) {
     escapeActionRef.current = () => {
       measurement.closeMeasureTool();
       focusMapViewport();
     };
     deleteActionRef.current =
-      measure && (editingFeatureId !== null || activeUnsavedMeasurementId !== null)
+      selectedMeasurements.length > 1
         ? () => {
-            void measurement.deleteCurrentMeasurement().then((deleted) => {
+            void measurement.deleteAllSelectedMeasurements().then((deleted) => {
               if (deleted && tool !== "measure") focusMapViewport();
             });
           }
-        : null;
+        : measure && (editingFeatureId !== null || activeUnsavedMeasurementId !== null)
+          ? () => {
+              void measurement.deleteCurrentMeasurement().then((deleted) => {
+                if (deleted && tool !== "measure") focusMapViewport();
+              });
+            }
+          : null;
   } else {
     escapeActionRef.current = null;
     deleteActionRef.current = null;
@@ -196,7 +214,38 @@ export default function MeasureTool() {
     );
   }
 
-  if (tool !== "measure" && !selectedFeature && !activeUnsavedMeasurementId) return null;
+  if (
+    tool !== "measure" &&
+    !selectedFeature &&
+    !activeUnsavedMeasurementId &&
+    selectedMeasurements.length === 0
+  ) {
+    return null;
+  }
+
+  if (selectedMeasurements.length > 1) {
+    return (
+      <MultiMeasurementBar
+        items={selectedMeasurements}
+        units={units}
+        areaUnit={areaUnit}
+        opacity={overlayOpacity}
+        onFocusSingle={(item) =>
+          window.dispatchEvent(new CustomEvent("focus-single-measurement", { detail: { item } }))
+        }
+        onDeleteAll={() => void measurement.deleteAllSelectedMeasurements()}
+        onClose={measurement.closeMeasureTool}
+      />
+    );
+  }
+
+  const activeLinkKey = toMeasurementLinkKey({
+    savedId: editingFeatureId,
+    unsavedId: activeUnsavedMeasurementId,
+  });
+  const linkedGroup = activeLinkKey
+    ? getLinkedMeasurementGroup(measurementLinks, activeLinkKey)
+    : [];
 
   if (selectedFeature?.kind === "marker" && tool !== "measure") {
     return (
@@ -263,6 +312,22 @@ export default function MeasureTool() {
           <button className="flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1 text-xs font-medium text-white shadow hover:bg-red-700 transition" onClick={() => void measurement.deleteCurrentMeasurement()} title="Poista mittaus">
             <Trash2 size={13} /> Poista
           </button>
+          {linkedGroup.length > 1 && activeLinkKey && (
+            <button
+              type="button"
+              className="flex items-center gap-1 rounded-lg border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900/60 transition"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("select-linked-measurements", {
+                    detail: { linkKey: activeLinkKey },
+                  }),
+                )
+              }
+              title="Valitse molemmat yhdistetyt mittaukset (tai Ctrl+klikkaa kartalta)"
+            >
+              <Link2 size={13} /> Valitse yhdistetyt ({linkedGroup.length})
+            </button>
+          )}
           <button
             className="flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900 transition"
             onClick={() => {

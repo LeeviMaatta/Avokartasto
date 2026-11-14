@@ -3,8 +3,8 @@ import GeoJSON from "ol/format/GeoJSON";
 import Polygon from "ol/geom/Polygon";
 import { getArea, getLength } from "ol/sphere";
 import { useMapStore } from "../../../store/mapStore";
-import { addFeature, deleteFeature, updateFeature, type UserFeature } from "../../../infrastructure/tauri";
-import { requestConfirmation } from "../../../app/confirmation";
+import { addFeature, updateFeature, type UserFeature } from "../../../infrastructure/tauri";
+import { deleteSelectedMeasurements } from "../domain/measurementDeletion";
 import { optimizeDistanceMeasurementToTerrainRoute } from "../domain/terrainGridLoader";
 import type { TerrainRoutePreset, TerrainRouteStats } from "../domain/terrainRouting";
 import { resolveNearestPlaceName } from "../../search/services/reverseGeocode";
@@ -112,6 +112,9 @@ export function useMeasurementWorkflow({
         tool: "none",
         editingFeatureId: feature.id,
         activeUnsavedMeasurementId: null,
+        selectedMeasurements: [
+          { savedId: feature.id, unsavedId: null, length, kind, title: feature.title },
+        ],
         measure: { length, geojson: feature.geojson, kind },
         profile: null,
         profileVisible: false,
@@ -156,6 +159,7 @@ export function useMeasurementWorkflow({
       profileError: null,
       editingFeatureId: null,
       activeUnsavedMeasurementId: null,
+      selectedMeasurements: [],
       selectedFeature: null,
     });
     clearTerrainAndFields();
@@ -163,9 +167,14 @@ export function useMeasurementWorkflow({
   };
 
   const closeMeasureTool = () => {
-    if (editingFeatureId !== null) {
-      window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId: editingFeatureId } }));
-    }
+    const savedIds = new Set<number>();
+    if (editingFeatureId !== null) savedIds.add(editingFeatureId);
+    useMapStore.getState().selectedMeasurements.forEach((item) => {
+      if (item.savedId !== null) savedIds.add(item.savedId);
+    });
+    savedIds.forEach((savedId) => {
+      window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId } }));
+    });
     resetActiveMeasurementState(true);
   };
 
@@ -213,6 +222,7 @@ export function useMeasurementWorkflow({
         profileError: null,
         editingFeatureId: null,
         activeUnsavedMeasurementId: null,
+        selectedMeasurements: [],
         selectedFeature: null,
       });
       setTitle("");
@@ -228,19 +238,40 @@ export function useMeasurementWorkflow({
   };
 
   const deleteCurrentMeasurement = async (): Promise<boolean> => {
-    if (editingFeatureId !== null) {
-      const label = title.trim() || selectedFeature?.title || "Mittaus";
-      if (!(await requestConfirmation(`Haluatko varmasti poistaa mittauksen "${label}"?`))) return false;
-      await deleteFeature(editingFeatureId);
-      bumpFeatures();
-      window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId: editingFeatureId } }));
-    } else if (activeUnsavedMeasurementId) {
-      window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { unsavedId: activeUnsavedMeasurementId } }));
-    } else {
-      return false;
+    const item =
+      editingFeatureId !== null
+        ? {
+            savedId: editingFeatureId,
+            unsavedId: null,
+            length: measure?.length ?? 0,
+            kind: measure?.kind ?? ("distance" as const),
+            title: title.trim() || selectedFeature?.title || "Mittaus",
+          }
+        : activeUnsavedMeasurementId
+          ? {
+              savedId: null,
+              unsavedId: activeUnsavedMeasurementId,
+              length: measure?.length ?? 0,
+              kind: measure?.kind ?? ("distance" as const),
+            }
+          : null;
+    if (!item) return false;
+    const deleted = await deleteSelectedMeasurements([item], bumpFeatures);
+    if (deleted) {
+      clearTerrainAndFields();
+      setMsg("");
     }
-    resetActiveMeasurementState(false);
-    return true;
+    return deleted;
+  };
+
+  const deleteAllSelectedMeasurements = async (): Promise<boolean> => {
+    const items = useMapStore.getState().selectedMeasurements;
+    const deleted = await deleteSelectedMeasurements(items, bumpFeatures);
+    if (deleted) {
+      clearTerrainAndFields();
+      setMsg("");
+    }
+    return deleted;
   };
 
   const chooseType = (nextType: "distance" | "area") => {
@@ -360,6 +391,7 @@ export function useMeasurementWorkflow({
     closeMeasureTool,
     saveMeasurement,
     deleteCurrentMeasurement,
+    deleteAllSelectedMeasurements,
     chooseType,
     runTerrainRoute,
     restoreOriginalMeasurement,

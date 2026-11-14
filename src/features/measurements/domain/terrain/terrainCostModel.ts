@@ -48,7 +48,7 @@ export function computeSwampCellMultipliers(
   grid: TerrainGrid,
   weights: ResolvedRoutingWeights,
 ): Float32Array | null {
-  if (!weights.avoidSwamp) return null;
+  if (!weights.avoidSwamp && !weights.avoidWater) return null;
 
   const total = grid.width * grid.height;
   const mults = new Float32Array(total);
@@ -84,7 +84,16 @@ export function computeSwampCellMultipliers(
     for (let x = 0; x < grid.width; x++) {
       const idx = y * grid.width + x;
       const flags = grid.terrainFlags[idx];
-      if ((flags & TERRAIN_SWAMP) === 0) continue;
+      if ((flags & TERRAIN_WATER) !== 0) continue;
+
+      if ((flags & TERRAIN_SWAMP) === 0) {
+        // Rantavyöhyke saa kevyen lisähinnan, jotta reitti ei nuole vesiviivan reunasoluja
+        if (weights.avoidWater && hasAdjacentWater(x, y)) {
+          mults[idx] = 2.0;
+        }
+        continue;
+      }
+      if (!weights.avoidSwamp) continue;
 
       if ((flags & TERRAIN_SWAMP_WET) !== 0 || (weights.avoidWater && hasAdjacentWater(x, y))) {
         mults[idx] = weights.wetSwampMultiplier;
@@ -221,8 +230,10 @@ export function stepCost(
   }
 
   let terrainMultiplier = 1;
-  if (weights.avoidSwamp && (toFlags & TERRAIN_SWAMP) !== 0) {
-    terrainMultiplier = swampMultipliers ? swampMultipliers[toIdx] : weights.swampMultiplier;
+  if (swampMultipliers && swampMultipliers[toIdx] > 0) {
+    terrainMultiplier = swampMultipliers[toIdx];
+  } else if (weights.avoidSwamp && (toFlags & TERRAIN_SWAMP) !== 0) {
+    terrainMultiplier = weights.swampMultiplier;
   }
 
   const elevA = grid.elevations[fromIdx];

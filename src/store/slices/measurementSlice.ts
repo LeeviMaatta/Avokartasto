@@ -1,4 +1,8 @@
 import type { MapSlice, MapState } from "./storeTypes";
+import {
+  addMeasurementLink,
+  removeMeasurementFromLinks,
+} from "../../features/measurements/domain/measurementSelection";
 
 export type MeasurementSlice = Pick<
   MapState,
@@ -8,6 +12,8 @@ export type MeasurementSlice = Pick<
   | "measure"
   | "editingFeatureId"
   | "activeUnsavedMeasurementId"
+  | "selectedMeasurements"
+  | "measurementLinks"
   | "profile"
   | "profileVisible"
   | "profileError"
@@ -19,6 +25,9 @@ export type MeasurementSlice = Pick<
   | "selectedFeature"
   | "bumpFeatures"
   | "toggleTool"
+  | "linkMeasurements"
+  | "unlinkMeasurement"
+  | "clearMeasurementSelection"
 >;
 
 export const createMeasurementSlice: MapSlice<MeasurementSlice> = (set, get) => ({
@@ -28,6 +37,8 @@ export const createMeasurementSlice: MapSlice<MeasurementSlice> = (set, get) => 
   measure: null,
   editingFeatureId: null,
   activeUnsavedMeasurementId: null,
+  selectedMeasurements: [],
+  measurementLinks: {},
   profile: null,
   profileVisible: false,
   profileError: null,
@@ -41,8 +52,15 @@ export const createMeasurementSlice: MapSlice<MeasurementSlice> = (set, get) => 
   bumpFeatures: () => set({ featuresVersion: get().featuresVersion + 1 }),
   toggleTool: (nextTool) => {
     const state = get();
-    if (state.editingFeatureId !== null && typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId: state.editingFeatureId } }));
+    if (typeof window !== "undefined") {
+      const savedIds = new Set<number>();
+      if (state.editingFeatureId !== null) savedIds.add(state.editingFeatureId);
+      state.selectedMeasurements.forEach((item) => {
+        if (item.savedId !== null) savedIds.add(item.savedId);
+      });
+      savedIds.forEach((savedId) => {
+        window.dispatchEvent(new CustomEvent("remove-measurement-feature", { detail: { savedId } }));
+      });
     }
     set({
       tool: state.tool === nextTool ? "none" : nextTool,
@@ -52,7 +70,23 @@ export const createMeasurementSlice: MapSlice<MeasurementSlice> = (set, get) => 
       profileError: null,
       editingFeatureId: null,
       activeUnsavedMeasurementId: null,
+      selectedMeasurements: [],
       selectedFeature: null,
     });
   },
+  linkMeasurements: (idA, idB) =>
+    set((state) => ({ measurementLinks: addMeasurementLink(state.measurementLinks, idA, idB) })),
+  unlinkMeasurement: (id) =>
+    set((state) => ({ measurementLinks: removeMeasurementFromLinks(state.measurementLinks, id) })),
+  clearMeasurementSelection: () =>
+    set({
+      measure: null,
+      profile: null,
+      profileVisible: false,
+      profileError: null,
+      editingFeatureId: null,
+      activeUnsavedMeasurementId: null,
+      selectedMeasurements: [],
+      selectedFeature: null,
+    }),
 });

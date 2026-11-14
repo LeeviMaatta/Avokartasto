@@ -114,6 +114,7 @@ describe("mapStore", () => {
       measure: { length: 120, geojson: "{\"type\":\"LineString\",\"coordinates\":[]}", kind: "distance" },
       activeUnsavedMeasurementId: "unsaved-1",
       editingFeatureId: 5,
+      selectedMeasurements: [{ savedId: 5, unsavedId: null, length: 120, kind: "distance" }],
     });
 
     useMapStore.getState().toggleTool("measure");
@@ -122,6 +123,16 @@ describe("mapStore", () => {
     expect(state.measure).toBeNull();
     expect(state.activeUnsavedMeasurementId).toBeNull();
     expect(state.editingFeatureId).toBeNull();
+    expect(state.selectedMeasurements).toEqual([]);
+  });
+
+  it("links and unlinks session measurements", () => {
+    useMapStore.getState().linkMeasurements("unsaved-1", "unsaved-2");
+    expect(useMapStore.getState().measurementLinks["unsaved-1"]).toEqual(["unsaved-2"]);
+    expect(useMapStore.getState().measurementLinks["unsaved-2"]).toEqual(["unsaved-1"]);
+
+    useMapStore.getState().unlinkMeasurement("unsaved-1");
+    expect(useMapStore.getState().measurementLinks["unsaved-2"]).toBeUndefined();
   });
 
   it("switches back and forth to the previously used basemap unless hidden", () => {

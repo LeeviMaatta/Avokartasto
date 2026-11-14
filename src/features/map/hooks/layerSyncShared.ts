@@ -1,4 +1,6 @@
 import type { LocalSource } from "../../../infrastructure/tauri";
+import type { UiStyle } from "../../settings/model/settingTypes";
+import type { SelectedMeasurementItem } from "../../measurements/domain/measurementSelection";
 import { isSelectedMeasurementFeature, measurementStyle } from "../styles/featureStyles";
 
 export const APP_LAYER_TYPE = "avokartasto-layer-type";
@@ -40,14 +42,17 @@ export function sourceSignature(source: LocalSource | undefined, layerSettingsKe
   ]);
 }
 
-/** Builds the OpenLayers style function for the measurement vector layer, showing segment labels only for the active measurement. */
+/** Builds the OpenLayers style function for the measurement vector layer, showing segment or total labels for active measurements. */
 export function buildMeasurementLayerStyle(
   settings: Record<string, string>,
   editingFeatureId: number | null,
   activeUnsavedMeasurementId: string | null,
+  selectedMeasurements: SelectedMeasurementItem[] = [],
 ) {
   const parsedMinSegDist = Number(settings.segmentLengthMinDistance ?? "500");
   const parsedMinZoom = Number(settings.segmentLengthsMinZoom ?? "13");
+  const uiStyle: UiStyle =
+    settings.uiStyle === "classic" || settings.uiStyle === "retro" ? settings.uiStyle : "modern";
   return measurementStyle(
     {
       saved: settings.savedMeasurementColor || "#16a34a",
@@ -59,8 +64,16 @@ export function buildMeasurementLayerStyle(
       minSegmentDistanceM: Number.isFinite(parsedMinSegDist) ? parsedMinSegDist : 500,
       hideByZoom: settings.hideSegmentLengthsByZoom !== "0",
       minZoomForSegments: Number.isFinite(parsedMinZoom) ? parsedMinZoom : 13,
+      showTotalOnly: selectedMeasurements.length > 1,
+      theme: settings.theme === "dark" ? "dark" : "light",
+      uiStyle,
       isSelectedFeature: (feature) =>
-        isSelectedMeasurementFeature(feature, editingFeatureId, activeUnsavedMeasurementId),
+        isSelectedMeasurementFeature(
+          feature,
+          editingFeatureId,
+          activeUnsavedMeasurementId,
+          selectedMeasurements,
+        ),
     },
   );
 }

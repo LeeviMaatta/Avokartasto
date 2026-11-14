@@ -219,4 +219,38 @@ describe("terrainRouting", () => {
     });
     expect(touchedWet).toBe(false);
   });
+
+  it("never clips diagonally across shoreline water corners in balanced mode", () => {
+    // Järvenlahti kurottuu kohti reittiä (x=10..13, y<=11), jonka takana on kuivaa metsämaata (y>=12)
+    const grid = createTestGrid(
+      26,
+      20,
+      25,
+      (x, y) => (y >= 12 ? 12 + (x % 3) * 0.2 : 10),
+      (x, y) => {
+        if (y <= 9) return TERRAIN_WATER;
+        if (y <= 11 && x >= 10 && x <= 13) return TERRAIN_WATER;
+        return TERRAIN_NONE;
+      },
+    );
+
+    const start = gridCellToMercator(grid, { x: 4, y: 10 });
+    const goal = gridCellToMercator(grid, { x: 20, y: 10 });
+    const res = routeMercatorWaypointsOnGrid(grid, [start, goal], {
+      preset: "balanced",
+      avoidSwamp: true,
+      avoidWater: true,
+    });
+
+    // Tarkistetaan tiheällä näytteistyksellä koko reittiviivalta ettei yksikään piste tai segmentti osu veteen
+    for (let i = 1; i < res.coordinatesMercator.length; i++) {
+      const [x0, y0] = res.coordinatesMercator[i - 1];
+      const [x1, y1] = res.coordinatesMercator[i];
+      for (let s = 0; s <= 20; s++) {
+        const t = s / 20;
+        const c = mercatorToGridCell(grid, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
+        expect(grid.terrainFlags[c.y * grid.width + c.x] & TERRAIN_WATER).toBe(0);
+      }
+    }
+  });
 });

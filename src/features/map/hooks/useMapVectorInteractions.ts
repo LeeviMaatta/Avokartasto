@@ -7,13 +7,11 @@ import LineString from "ol/geom/LineString";
 import Point from "ol/geom/Point";
 import Polygon from "ol/geom/Polygon";
 import { toLonLat } from "ol/proj";
-import { getArea, getLength } from "ol/sphere";
 import type VectorSource from "ol/source/Vector";
 import { useMapStore } from "../../../store/mapStore";
-import {
-  clearSavedEditFeatures,
-  ensureUnsavedMeasurementId,
-} from "../../measurements/domain/measurementSource";
+import { applyMeasurementClickSelection } from "../../measurements/domain/measurementClickSelect";
+import { shouldIgnoreMeasurementSingleClick } from "../../measurements/domain/measurementEndpointAction";
+import { clearSavedEditFeatures } from "../../measurements/domain/measurementSource";
 import type { RoutePoint, RouteResult } from "../../routing/services/routeService";
 import {
   fetchLineElevationProfile,
@@ -69,6 +67,7 @@ export function useMapVectorInteractions({
     routeSrc,
     pendingMarkerFeature,
     profileRequest,
+    tool,
     pendingMarker,
     routePoints,
     routeResult,
@@ -90,6 +89,7 @@ export function useMapVectorInteractions({
         });
         return;
       }
+      if (shouldIgnoreMeasurementSingleClick()) return;
       const clickedFeature = map.forEachFeatureAtPixel(
         e.pixel,
         (feat) => {
@@ -125,6 +125,7 @@ export function useMapVectorInteractions({
           },
           editingFeatureId: null,
           activeUnsavedMeasurementId: null,
+          selectedMeasurements: [],
           measure: null,
           profile: null,
           profileVisible: false,
@@ -134,70 +135,34 @@ export function useMapVectorInteractions({
         return;
       }
       if (!(geom instanceof LineString) && !(geom instanceof Polygon)) return;
-      const kind = geom instanceof Polygon ? "area" : "distance";
-      const length =
-        kind === "area"
-          ? getArea(geom, { projection: "EPSG:3857" })
-          : getLength(geom, { projection: "EPSG:3857" });
-      const geojson = new GeoJSON().writeGeometry(geom, {
-        dataProjection: "EPSG:4326",
-        featureProjection: "EPSG:3857",
+      const origEvent = e.originalEvent;
+      const multiSelect =
+        origEvent instanceof MouseEvent && (origEvent.ctrlKey || origEvent.metaKey);
+      const profileLine = applyMeasurementClickSelection({
+        clickedFeature,
+        measureSource: measureSrc.current,
+        savedId: saved ? savedId : null,
+        multiSelect,
       });
-      let nextUnsavedId: string | null = null;
-      if (saved) {
-        clearSavedEditFeatures(measureSrc.current);
-        const editable = clickedFeature.clone();
-        editable.set("id", savedId);
-        measureSrc.current.addFeature(editable);
-      } else {
-        clearSavedEditFeatures(measureSrc.current);
-        nextUnsavedId = ensureUnsavedMeasurementId(clickedFeature);
-      }
-      useMapStore.setState({
-        pendingMarker: null,
-        markerEditorOpen: false,
-        measure: { length, geojson, kind },
-        profile: null,
-        profileVisible: false,
-        profileError: null,
-        editingFeatureId: saved ? savedId : null,
-        activeUnsavedMeasurementId: saved ? null : nextUnsavedId,
-        selectedFeature: saved
-          ? {
-              id: savedId,
-              kind: "measurement",
-              title: String(clickedFeature.get("title") || "Mittaus"),
-              description: clickedFeature.get("description") ?? null,
-              color: clickedFeature.get("color") || "#dc2626",
-              folder_id: clickedFeature.get("folder_id") ?? null,
-              geojson,
-            }
-          : null,
-      });
-      if (geom instanceof LineString) await fetchLineElevationProfile(geom, profileRequest);
+      if (profileLine) await fetchLineElevationProfile(profileLine, profileRequest);
     };
 
     const handleDblClickReset = () => {
       const state = useMapStore.getState();
       if (state.settings.removePendingMarkerOnDblClick === "0") return false;
+      if (state.tool === "measure") return false;
       if (
         state.editingFeatureId !== null ||
-        (state.activeUnsavedMeasurementId !== null && state.tool !== "measure")
+        state.selectedMeasurements.length > 0 ||
+        state.activeUnsavedMeasurementId !== null
       ) {
-        if (state.editingFeatureId !== null) clearSavedEditFeatures(measureSrc.current);
+        if (state.editingFeatureId !== null || state.selectedMeasurements.some((m) => m.savedId !== null)) {
+          clearSavedEditFeatures(measureSrc.current);
+        }
         profileRequest.current += 1;
-        useMapStore.setState({
-          editingFeatureId: null,
-          activeUnsavedMeasurementId: null,
-          measure: null,
-          selectedFeature: null,
-          profile: null,
-          profileVisible: false,
-          profileError: null,
-        });
+        useMapStore.getState().clearMeasurementSelection();
         return true;
       }
-      if (state.tool === "measure") return false;
       if (!state.pendingMarker && !pendingMarkerFeature.current) return false;
       if (pendingMarkerFeature.current) {
         featSrc.current.removeFeature(pendingMarkerFeature.current);

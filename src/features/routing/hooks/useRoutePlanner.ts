@@ -20,6 +20,7 @@ export function useRoutePlanner(
   const [routeError, setRouteError] = useState<string | null>(null);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
+  const lastFetchedKeyRef = useRef<string | null>(null);
 
   const clearSearchDropdown = useCallback(() => {
     setActiveSearchIdx(null);
@@ -50,11 +51,20 @@ export function useRoutePlanner(
   }, [tool, activeSearchIdx, clearSearchDropdown]);
 
   useEffect(() => {
-    if (tool !== "route") return;
+    if (tool !== "route") {
+      setLoadingRoute(false);
+      return;
+    }
     const validPoints = routePoints.filter((p): p is RoutePoint => p !== null);
     if (validPoints.length < 2 || validPoints.length !== routePoints.length) {
+      lastFetchedKeyRef.current = null;
       useMapStore.setState({ routeResult: null });
       setRouteError(null);
+      return;
+    }
+
+    const requestKey = `${routeMode}:${validPoints.map((p) => `${p.coord[0]},${p.coord[1]}`).join(";")}`;
+    if (lastFetchedKeyRef.current === requestKey && useMapStore.getState().routeResult !== null) {
       return;
     }
 
@@ -66,11 +76,13 @@ export function useRoutePlanner(
     calculateRoute(validPoints, routeMode, ac.signal)
       .then((res) => {
         if (!ac.signal.aborted) {
+          lastFetchedKeyRef.current = requestKey;
           useMapStore.setState({ routeResult: res });
         }
       })
       .catch((err) => {
         if (!ac.signal.aborted) {
+          lastFetchedKeyRef.current = null;
           useMapStore.setState({ routeResult: null });
           setRouteError(err instanceof Error ? err.message : "Reitin laskenta epäonnistui.");
         }
@@ -79,7 +91,9 @@ export function useRoutePlanner(
         if (!ac.signal.aborted) setLoadingRoute(false);
       });
 
-    return () => ac.abort();
+    return () => {
+      ac.abort();
+    };
   }, [tool, routePoints, routeMode]);
 
   useEffect(() => () => {

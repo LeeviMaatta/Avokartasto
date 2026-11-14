@@ -6,13 +6,19 @@ import Point from "ol/geom/Point";
 import Polygon from "ol/geom/Polygon";
 import VectorSource from "ol/source/Vector";
 import { getArea, getLength } from "ol/sphere";
-import { Trash2, Pencil } from "lucide-react";
+import { Trash2, Pencil, Link2 } from "lucide-react";
 import { useMapStore } from "../../../store/mapStore";
 import { deleteFeature } from "../../../infrastructure/tauri";
 import { requestConfirmation } from "../../../app/confirmation";
 import {
+  getLinkedMeasurementGroup,
+  isSameMeasurementItem,
+  toMeasurementLinkKey,
+} from "../../measurements/domain/measurementSelection";
+import {
   clearSavedEditFeatures,
   ensureUnsavedMeasurementId,
+  getUnsavedMeasurementFeatures,
 } from "../../measurements/domain/measurementSource";
 import { focusFirstNavigable, focusMapViewport, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 
@@ -49,30 +55,53 @@ export default function FeatureContextMenu({ value, opacity, measureSource, prof
       ? `Haluatko varmasti poistaa merkin "${title}"?`
       : `Haluatko varmasti poistaa mittauksen "${title}"?`;
     if (!(await requestConfirmation(prompt))) return;
+    let removedUnsavedIndex: number | undefined;
     if (value.savedId) {
       await deleteFeature(value.savedId);
       useMapStore.getState().bumpFeatures();
       if (!isPoint) clearSavedEditFeatures(measureSource, value.savedId);
     } else {
+      const idx = getUnsavedMeasurementFeatures(measureSource).indexOf(value.feature);
+      if (idx >= 0) removedUnsavedIndex = idx;
       measureSource.removeFeature(value.feature);
     }
     const state = useMapStore.getState();
+    const unsavedId =
+      value.savedId === undefined && typeof value.feature.get("unsavedId") === "string"
+        ? String(value.feature.get("unsavedId"))
+        : null;
+    if (unsavedId) state.unlinkMeasurement(unsavedId);
+    const deletedRef = { savedId: value.savedId ?? null, unsavedId };
+    const remainingSelection = state.selectedMeasurements.filter(
+      (item) => !isSameMeasurementItem(item, deletedRef),
+    );
+    const deletedWasSelected = remainingSelection.length !== state.selectedMeasurements.length;
     const deletedActiveSaved = value.savedId !== undefined && state.editingFeatureId === value.savedId;
     const deletedActiveUnsaved =
-      value.savedId === undefined &&
-      Boolean(value.feature.get("unsavedId")) &&
-      state.activeUnsavedMeasurementId === value.feature.get("unsavedId");
-    if (deletedActiveSaved || deletedActiveUnsaved) {
+      unsavedId !== null && state.activeUnsavedMeasurementId === unsavedId;
+    if (deletedWasSelected || deletedActiveSaved || deletedActiveUnsaved) {
       profileRequest.current += 1;
-      useMapStore.setState({
-        measure: null,
-        profile: null,
-        profileVisible: false,
-        profileError: null,
-        editingFeatureId: null,
-        activeUnsavedMeasurementId: null,
-        selectedFeature: null,
-      });
+      if (remainingSelection.length === 0) {
+        state.clearMeasurementSelection();
+        if (value.savedId === undefined && state.tool === "measure") {
+          window.dispatchEvent(
+            new CustomEvent("focus-next-unsaved-measurement", {
+              detail: { preferredIndex: removedUnsavedIndex },
+            }),
+          );
+        }
+      } else if (remainingSelection.length === 1) {
+        window.dispatchEvent(
+          new CustomEvent("focus-single-measurement", { detail: { item: remainingSelection[0] } }),
+        );
+      } else {
+        const nextPrimary = remainingSelection[remainingSelection.length - 1];
+        useMapStore.setState({
+          selectedMeasurements: remainingSelection,
+          editingFeatureId: nextPrimary.savedId,
+          activeUnsavedMeasurementId: nextPrimary.savedId !== null ? null : nextPrimary.unsavedId,
+        });
+      }
     }
     onClose();
   };
@@ -128,6 +157,9 @@ export default function FeatureContextMenu({ value, opacity, measureSource, prof
               markerEditorOpen: false,
               editingFeatureId: value.savedId,
               activeUnsavedMeasurementId: null,
+              selectedMeasurements: [
+                { savedId: value.savedId, unsavedId: null, length, kind, title },
+              ],
               measure: { length, geojson, kind },
               profile: null,
               profileVisible: false,
@@ -150,6 +182,7 @@ export default function FeatureContextMenu({ value, opacity, measureSource, prof
               markerEditorOpen: false,
               editingFeatureId: null,
               activeUnsavedMeasurementId: uid,
+              selectedMeasurements: [{ savedId: null, unsavedId: uid, length, kind }],
               measure: { length, geojson, kind },
               profile: null,
               profileVisible: false,
@@ -162,6 +195,37 @@ export default function FeatureContextMenu({ value, opacity, measureSource, prof
       >
         <Pencil size={13} /> {isPoint ? "Muokkaa merkkiä" : "Muokkaa mittausta"}
       </button>
+      {(() => {
+        if (isPoint) return null;
+        const contextLinkKey = toMeasurementLinkKey({
+          savedId: value.savedId ?? null,
+          unsavedId:
+            typeof value.feature.get("unsavedId") === "string"
+              ? String(value.feature.get("unsavedId"))
+              : null,
+        });
+        if (
+          !contextLinkKey ||
+          getLinkedMeasurementGroup(useMapStore.getState().measurementLinks, contextLinkKey).length <= 1
+        ) {
+          return null;
+        }
+        return (
+          <button
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-blue-600 hover:bg-gray-100 dark:text-blue-400 dark:hover:bg-gray-700"
+            onClick={() => {
+              window.dispatchEvent(
+                new CustomEvent("select-linked-measurements", {
+                  detail: { linkKey: contextLinkKey },
+                }),
+              );
+              onClose();
+            }}
+          >
+            <Link2 size={13} /> Valitse yhdistetyt
+          </button>
+        );
+      })()}
       {canDelete && (
         <button
           className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-600 hover:bg-gray-100 dark:text-red-400 dark:hover:bg-gray-700"
