@@ -17,6 +17,8 @@ export const DEFAULT_SETTINGS: Settings = {
   showOverviewMap: "0",
   showGeolocation: "1",
   enableRotation: "1",
+  rotationKey: "alt+shift",
+  arrowZoomKey: "shift",
   enableDoubleClickZoom: "0",
   removePendingMarkerOnDblClick: "1",
   kineticPanning: "1",

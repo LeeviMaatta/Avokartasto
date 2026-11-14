@@ -26,6 +26,8 @@ export type SettingKey =
   | "kineticPanning"
   | "areaUnit"
   | "enableRotation"
+  | "rotationKey"
+  | "arrowZoomKey"
   | "enableDoubleClickZoom"
   | "removePendingMarkerOnDblClick"
   | "savedMarkerColor"

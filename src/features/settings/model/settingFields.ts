@@ -21,7 +21,7 @@ export const SETTING_TOGGLES: [string, string][] = [
   ["darkMapTiles", "Käytä tummaa tilaa myös karttapohjille (Yökartta)"],
   ["enableRotation", "Salli kartan pyörittäminen"],
   ["enableDoubleClickZoom", "Zoomaa kaksoisklikkauksella"],
-  ["removePendingMarkerOnDblClick", "Poista tallentamaton merkki ja lopeta mittauksen muokkaus kaksoisklikkauksella"],
+  ["removePendingMarkerOnDblClick", "Poista merkki tai lopeta muokkaus kaksoisklikkauksella"],
   ["kineticPanning", "Sulava kartan liukuminen (Inertia)"],
   ["showSegmentLengths", "Näytä mittausviivan osapituudet"],
   ["hideSegmentLengthsByZoom", "Piilota mittausviivan osapituudet kauemmas zoomattaessa"],
@@ -63,4 +63,6 @@ export const SETTING_VALUE_KEYS = [
   "copernicusRangeSelectedDate",
   "keyboardShortcutsEnabled",
   "keyboardShortcuts",
+  "rotationKey",
+  "arrowZoomKey",
 ] as const;

@@ -56,9 +56,27 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutActionId, string> = Object.fromEn
   SHORTCUT_DEFINITIONS.map((def) => [def.id, def.defaultKey]),
 ) as Record<ShortcutActionId, string>;
 
+export const DEFAULT_ROTATION_KEY = "alt+shift";
+export const DEFAULT_ARROW_ZOOM_KEY = "shift";
+
 const MODIFIER_KEYS = new Set(["control", "shift", "alt", "meta", "os", "altgraph"]);
 
-function normalizeSingleKey(rawKey: string, code?: string): string {
+export function isModifierKey(rawKey: string): boolean {
+  return MODIFIER_KEYS.has(rawKey.toLowerCase());
+}
+
+export function getModifiersFromEvent(
+  event: Pick<KeyboardEvent, "ctrlKey" | "altKey" | "shiftKey" | "metaKey">,
+): string[] {
+  const parts: string[] = [];
+  if (event.ctrlKey) parts.push("ctrl");
+  if (event.altKey) parts.push("alt");
+  if (event.shiftKey) parts.push("shift");
+  if (event.metaKey) parts.push("meta");
+  return parts;
+}
+
+export function normalizeSingleKey(rawKey: string, code?: string): string {
   if (code === "NumpadAdd") return "+";
   if (code === "NumpadSubtract") return "-";
   if (code === "NumpadDivide") return "/";
@@ -67,6 +85,14 @@ function normalizeSingleKey(rawKey: string, code?: string): string {
   if (lower === "=") return "+";
   if (lower === "esc") return "escape";
   return lower;
+}
+
+function splitNormalizedCombo(normalized: string): string[] {
+  if (!normalized) return [];
+  const endsWithPlus = normalized === "+" || normalized.endsWith("++");
+  const parts = normalized.split("+").filter(Boolean);
+  if (endsWithPlus) parts.push("+");
+  return parts;
 }
 
 export function normalizeShortcutString(combo: string): string {
@@ -86,6 +112,87 @@ export function normalizeShortcutString(combo: string): string {
   if (!normalizedKey || MODIFIER_KEYS.has(normalizedKey)) return "";
   ordered.push(normalizedKey);
   return ordered.join("+");
+}
+
+export function normalizeRotationKeyString(combo: string): string {
+  const trimmed = combo.trim().toLowerCase();
+  if (!trimmed) return "";
+  const endsWithPlus = trimmed === "+" || trimmed.endsWith("++");
+  const parts = trimmed.split("+").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0 && !endsWithPlus) return "";
+
+  const mods = new Set<string>();
+  let keyPart = endsWithPlus ? "+" : "";
+
+  for (const part of parts) {
+    if (part === "ctrl" || part === "control") {
+      mods.add("ctrl");
+    } else if (part === "alt") {
+      mods.add("alt");
+    } else if (part === "shift") {
+      mods.add("shift");
+    } else if (part === "meta" || part === "cmd" || part === "os") {
+      mods.add("meta");
+    } else if (!MODIFIER_KEYS.has(part)) {
+      keyPart = normalizeSingleKey(part);
+    }
+  }
+
+  const ordered: string[] = [];
+  if (mods.has("ctrl")) ordered.push("ctrl");
+  if (mods.has("alt")) ordered.push("alt");
+  if (mods.has("shift")) ordered.push("shift");
+  if (mods.has("meta")) ordered.push("meta");
+  if (keyPart) ordered.push(keyPart);
+  return ordered.join("+");
+}
+
+export interface ParsedRotationKey {
+  ctrl: boolean;
+  alt: boolean;
+  shift: boolean;
+  meta: boolean;
+  key: string | null;
+}
+
+export function parseRotationKey(combo?: string, defaultKey = DEFAULT_ROTATION_KEY): ParsedRotationKey {
+  const normalized = normalizeRotationKeyString(combo || defaultKey) || defaultKey;
+  const parts = splitNormalizedCombo(normalized);
+  const modSet = new Set(["ctrl", "alt", "shift", "meta"]);
+  let key: string | null = null;
+  for (const part of parts) {
+    if (!modSet.has(part)) key = part;
+  }
+  return {
+    ctrl: parts.includes("ctrl"),
+    alt: parts.includes("alt"),
+    shift: parts.includes("shift"),
+    meta: parts.includes("meta"),
+    key,
+  };
+}
+
+export function matchesModifierCombo(
+  event: Pick<KeyboardEvent, "ctrlKey" | "altKey" | "shiftKey" | "metaKey">,
+  parsed: ParsedRotationKey,
+  heldKeysByCode?: ReadonlyMap<string, string>,
+): boolean {
+  if (
+    Boolean(event.ctrlKey) !== parsed.ctrl ||
+    Boolean(event.altKey) !== parsed.alt ||
+    Boolean(event.shiftKey) !== parsed.shift ||
+    Boolean(event.metaKey) !== parsed.meta
+  ) {
+    return false;
+  }
+  if (parsed.key) {
+    if (!heldKeysByCode) return false;
+    for (const held of heldKeysByCode.values()) {
+      if (held === parsed.key) return true;
+    }
+    return false;
+  }
+  return true;
 }
 
 export function normalizeShortcutFromEvent(
@@ -139,31 +246,37 @@ export function matchesShortcut(
   return pressed !== null && pressed === target;
 }
 
-export function formatShortcutLabel(combo: string): string {
-  const normalized = normalizeShortcutString(combo);
+const MOD_LABELS: Record<string, string> = {
+  ctrl: "Ctrl",
+  alt: "Alt",
+  shift: "Shift",
+  meta: "Meta",
+};
+
+const KEY_LABELS: Record<string, string> = {
+  space: "Space",
+  escape: "Esc",
+  enter: "Enter",
+  delete: "Delete",
+  arrowup: "↑",
+  arrowdown: "↓",
+  arrowleft: "←",
+  arrowright: "→",
+};
+
+function formatNormalizedCombo(normalized: string): string {
   if (!normalized) return "Ei asetettu";
-  const endsWithPlus = normalized === "+" || normalized.endsWith("++");
-  const rawParts = normalized.split("+").filter(Boolean);
-  const key = endsWithPlus ? "+" : (rawParts.pop() ?? "");
-  const modLabels: Record<string, string> = {
-    ctrl: "Ctrl",
-    alt: "Alt",
-    shift: "Shift",
-    meta: "Meta",
-  };
-  const keyLabels: Record<string, string> = {
-    space: "Space",
-    escape: "Esc",
-    enter: "Enter",
-    delete: "Delete",
-    arrowup: "↑",
-    arrowdown: "↓",
-    arrowleft: "←",
-    arrowright: "→",
-  };
-  const displayMods = rawParts.map((m) => modLabels[m] ?? m.toUpperCase());
-  const displayKey = keyLabels[key] ?? (key.length === 1 ? key.toUpperCase() : key.toUpperCase());
-  return [...displayMods, displayKey].join(" + ");
+  return splitNormalizedCombo(normalized)
+    .map((part) => MOD_LABELS[part] ?? KEY_LABELS[part] ?? part.toUpperCase())
+    .join(" + ");
+}
+
+export function formatShortcutLabel(combo: string): string {
+  return formatNormalizedCombo(normalizeShortcutString(combo));
+}
+
+export function formatRotationKeyLabel(combo: string): string {
+  return formatNormalizedCombo(normalizeRotationKeyString(combo));
 }
 
 export function findShortcutConflicts(shortcuts: Record<ShortcutActionId, string>): Set<ShortcutActionId> {

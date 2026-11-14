@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  DEFAULT_ROTATION_KEY,
   DEFAULT_SHORTCUTS,
   findShortcutConflicts,
+  formatRotationKeyLabel,
   formatShortcutLabel,
   isTextInputTarget,
   matchesShortcut,
+  normalizeRotationKeyString,
   normalizeShortcutFromEvent,
+  parseRotationKey,
   parseShortcuts,
 } from "../model/keyboardShortcuts";
 
@@ -99,6 +103,37 @@ describe("keyboardShortcuts", () => {
     expect(formatShortcutLabel("ctrl++")).toBe("Ctrl + +");
     expect(formatShortcutLabel("ctrl+,")).toBe("Ctrl + ,");
     expect(formatShortcutLabel("")).toBe("Ei asetettu");
+  });
+
+  it("normalizes, parses, and formats rotation key combinations including modifier-only bindings", () => {
+    expect(DEFAULT_ROTATION_KEY).toBe("alt+shift");
+    expect(normalizeRotationKeyString("Shift + Alt")).toBe("alt+shift");
+    expect(normalizeRotationKeyString("Control")).toBe("ctrl");
+    expect(normalizeRotationKeyString("Alt + R")).toBe("alt+r");
+    expect(normalizeRotationKeyString("R")).toBe("r");
+    expect(normalizeRotationKeyString("Space")).toBe("space");
+    expect(normalizeRotationKeyString("")).toBe("");
+
+    expect(formatRotationKeyLabel("alt+shift")).toBe("Alt + Shift");
+    expect(formatRotationKeyLabel("alt")).toBe("Alt");
+    expect(formatRotationKeyLabel("r")).toBe("R");
+    expect(formatRotationKeyLabel("alt+r")).toBe("Alt + R");
+    expect(formatRotationKeyLabel("")).toBe("Ei asetettu");
+
+    expect(parseRotationKey("alt+shift")).toEqual({
+      ctrl: false,
+      alt: true,
+      shift: true,
+      meta: false,
+      key: null,
+    });
+    expect(parseRotationKey("ctrl+r")).toEqual({
+      ctrl: true,
+      alt: false,
+      shift: false,
+      meta: false,
+      key: "r",
+    });
   });
 
   it("has conflict-free defaults and detects duplicate bindings", () => {

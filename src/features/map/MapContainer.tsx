@@ -32,6 +32,7 @@ import Stroke from "ol/style/Stroke";
 import { Circle as CircleStyle, Fill, Style, Text as TextStyle } from "ol/style";
 import DoubleClickZoom from "ol/interaction/DoubleClickZoom";
 import DragPan from "ol/interaction/DragPan";
+import DragRotate from "ol/interaction/DragRotate";
 import KeyboardZoom from "ol/interaction/KeyboardZoom";
 import Kinetic from "ol/Kinetic";
 import { LocateFixed } from "lucide-react";
@@ -52,6 +53,16 @@ import { recordDebugEvent, setDebugMap } from "../debug/debugMonitor";
 import { useDebugStore } from "../debug/debugStore";
 import { focusMapViewport } from "../../shared/keyboardNavigation";
 import { shouldFocusMapOnWheel } from "../../shared/mapFocus";
+import {
+  DEFAULT_ARROW_ZOOM_KEY,
+  DEFAULT_ROTATION_KEY,
+  isModifierKey,
+  isTextInputTarget,
+  matchesModifierCombo,
+  normalizeRotationKeyString,
+  normalizeSingleKey,
+  parseRotationKey,
+} from "../settings/model/keyboardShortcuts";
 
 export default function MapContainer() {
   const el = useRef<HTMLDivElement>(null);
@@ -257,7 +268,7 @@ export default function MapContainer() {
         new Attribution({ target: bottomRightRef.current ?? undefined, collapsible: true }),
         new Zoom({ target: bottomRightRef.current ?? undefined }),
       ]),
-      view: new View({ center: fromLonLat([24.94, 60.17]), zoom: 10, maxZoom: 21, enableRotation: settings.enableRotation !== "0" }),
+      view: new View({ center: fromLonLat([24.94, 60.17]), zoom: 10, maxZoom: 21, enableRotation: true }),
       layers: [
         new VectorLayer({
           className: "ol-vector-layer",
@@ -348,6 +359,61 @@ export default function MapContainer() {
         }),
       ],
     });
+    const heldKeysByCode = new Map<string, string>();
+    const onRotationKeyDown = (event: KeyboardEvent) => {
+      if (isModifierKey(event.key)) return;
+      const key = normalizeSingleKey(event.key, event.code);
+      if (key) heldKeysByCode.set(event.code || key, key);
+    };
+    const onRotationKeyUp = (event: KeyboardEvent) => {
+      if (isModifierKey(event.key)) return;
+      const key = normalizeSingleKey(event.key, event.code);
+      heldKeysByCode.delete(event.code || key);
+    };
+    const clearHeldRotationKeys = () => {
+      heldKeysByCode.clear();
+    };
+    window.addEventListener("keydown", onRotationKeyDown);
+    window.addEventListener("keyup", onRotationKeyUp);
+    window.addEventListener("blur", clearHeldRotationKeys);
+
+    const defaultDragRotate = map.getInteractions().getArray().find((i) => i instanceof DragRotate);
+    if (defaultDragRotate) {
+      map.removeInteraction(defaultDragRotate);
+    }
+    const customDragRotate = new DragRotate({
+      condition: (mapBrowserEvent) => {
+        const currentSettings = useMapStore.getState().settings;
+        if (currentSettings.enableRotation === "0") return false;
+        const orig = mapBrowserEvent.originalEvent;
+        if (!(orig instanceof MouseEvent)) return false;
+        const normalizedKey =
+          normalizeRotationKeyString(currentSettings.rotationKey || DEFAULT_ROTATION_KEY) || DEFAULT_ROTATION_KEY;
+        const parsed = parseRotationKey(normalizedKey);
+        return matchesModifierCombo(orig, parsed, heldKeysByCode);
+      },
+    });
+    (customDragRotate as unknown as { stopDown: (handled: boolean) => boolean }).stopDown = (handled) => handled;
+    map.addInteraction(customDragRotate);
+
+    const onMapArrowZoomKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      if (isTextInputTarget(event.target)) return;
+      const currentSettings = useMapStore.getState().settings;
+      const normalizedKey =
+        normalizeRotationKeyString(currentSettings.arrowZoomKey || DEFAULT_ARROW_ZOOM_KEY) || DEFAULT_ARROW_ZOOM_KEY;
+      const parsed = parseRotationKey(normalizedKey, DEFAULT_ARROW_ZOOM_KEY);
+      if (!matchesModifierCombo(event, parsed, heldKeysByCode)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const view = map.getView();
+      const z = view.getZoom();
+      if (z === undefined) return;
+      const nextZoom = event.key === "ArrowUp" ? Math.min(21, z + 1) : Math.max(0, z - 1);
+      view.animate({ zoom: nextZoom, duration: 150 });
+    };
+    mapElement?.addEventListener("keydown", onMapArrowZoomKeyDown, { capture: true });
+
     const initialDblClickZoom = map.getInteractions().getArray().find((i) => i instanceof DoubleClickZoom);
     if (initialDblClickZoom) {
       initialDblClickZoom.setActive(settings.enableDoubleClickZoom === "1");
@@ -594,11 +660,15 @@ export default function MapContainer() {
       if (saveViewTimeout !== null) window.clearTimeout(saveViewTimeout);
       mapElement?.removeEventListener("contextmenu", preventBrowserContextMenu);
       mapElement?.removeEventListener("wheel", focusMapOnWheel, { capture: true });
+      mapElement?.removeEventListener("keydown", onMapArrowZoomKeyDown, { capture: true });
       window.removeEventListener("remove-measurement-feature", removeMeasurementFeature);
       window.removeEventListener("open-measurement-editor", handleOpenMeasurementEditor);
       window.removeEventListener("replace-measurement-geometry", replaceMeasurementGeometry);
       window.removeEventListener("map-search-location", handleSearchLocation);
       window.removeEventListener("map-focus", handleSearchLocation);
+      window.removeEventListener("keydown", onRotationKeyDown);
+      window.removeEventListener("keyup", onRotationKeyUp);
+      window.removeEventListener("blur", clearHeldRotationKeys);
       if (viewRestored.current) {
         const view = map.getView();
         const center = view.getCenter();
@@ -866,14 +936,14 @@ export default function MapContainer() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const dragPan = map.getInteractions().getArray().find((i) => i instanceof DragPan) as DragPan | undefined;
+    const interactions = map.getInteractions();
+    const dragPanIndex = interactions.getArray().findIndex((i) => i instanceof DragPan);
     const enableKinetic = settings.kineticPanning !== "0";
-    if (dragPan) {
-      map.removeInteraction(dragPan);
+    if (dragPanIndex !== -1) {
       const newDragPan = new DragPan({
         kinetic: enableKinetic ? new Kinetic(-0.0055, 0.015, 140) : undefined,
       });
-      map.addInteraction(newDragPan);
+      interactions.setAt(dragPanIndex, newDragPan);
     }
   }, [settings.kineticPanning]);
 

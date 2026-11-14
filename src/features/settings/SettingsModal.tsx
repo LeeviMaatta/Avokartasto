@@ -18,12 +18,19 @@ import { useMapStore } from "../../store/mapStore";
 import { SETTING_KEYS, SETTING_TOGGLES, SETTING_VALUE_KEYS } from "./model/settingFields";
 import { parseOpenSections } from "./model/persistedUiState";
 import {
+  DEFAULT_ARROW_ZOOM_KEY,
+  DEFAULT_ROTATION_KEY,
   DEFAULT_SHORTCUTS,
   SHORTCUT_CATEGORIES,
   SHORTCUT_DEFINITIONS,
   findShortcutConflicts,
+  formatRotationKeyLabel,
   formatShortcutLabel,
+  getModifiersFromEvent,
+  isModifierKey,
+  normalizeRotationKeyString,
   normalizeShortcutFromEvent,
+  normalizeSingleKey,
   parseShortcuts,
   type ShortcutActionId,
 } from "./model/keyboardShortcuts";
@@ -68,6 +75,7 @@ export default function SettingsModal() {
   const [debugDataOpen, setDebugDataOpen] = useState(false);
   const [savedInitialView, setSavedInitialView] = useState(false);
   const [capturingAction, setCapturingAction] = useState<ShortcutActionId | null>(null);
+  const [capturingModifierSetting, setCapturingModifierSetting] = useState<"rotationKey" | "arrowZoomKey" | null>(null);
   const [backdropStatus, setBackdropStatus] = useState<BackdropCacheStatus>(() => getBackdropCacheStatus());
   const dialogRef = useRef<HTMLDivElement>(null);
   
@@ -80,6 +88,8 @@ export default function SettingsModal() {
   debugDraftRef.current = debugDraft;
   const capturingActionRef = useRef(capturingAction);
   capturingActionRef.current = capturingAction;
+  const capturingModifierSettingRef = useRef(capturingModifierSetting);
+  capturingModifierSettingRef.current = capturingModifierSetting;
 
   useEffect(() => subscribeBackdropCacheStatus(setBackdropStatus), []);
 
@@ -90,8 +100,10 @@ export default function SettingsModal() {
       setDebugDataOpen(false);
       setSavedInitialView(false);
       setCapturingAction(null);
+      setCapturingModifierSetting(null);
     } else {
       setCapturingAction(null);
+      setCapturingModifierSetting(null);
     }
   }, [settingsOpen, settings]);
 
@@ -125,6 +137,58 @@ export default function SettingsModal() {
     return () => window.removeEventListener("keydown", handleCapture, true);
   }, [capturingAction]);
 
+  useEffect(() => {
+    if (!capturingModifierSetting) return;
+    let pendingModifiers = "";
+    let completed = false;
+
+    const finishCapture = (combo: string) => {
+      if (completed || !combo) return;
+      completed = true;
+      setDraft((prev) => ({ ...prev, [capturingModifierSetting]: combo }));
+      setCapturingModifierSetting(null);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (completed) return;
+      if (event.key === "Escape") {
+        completed = true;
+        setCapturingModifierSetting(null);
+        return;
+      }
+      if (isModifierKey(event.key)) {
+        const mods = getModifiersFromEvent(event);
+        if (mods.length > 0) {
+          pendingModifiers = normalizeRotationKeyString(mods.join("+"));
+        }
+        return;
+      }
+      const key = normalizeSingleKey(event.key, event.code);
+      const combo = normalizeRotationKeyString([...getModifiersFromEvent(event), key].join("+"));
+      if (combo) {
+        finishCapture(combo);
+      }
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (completed) return;
+      if (isModifierKey(event.key) && pendingModifiers) {
+        event.preventDefault();
+        event.stopPropagation();
+        finishCapture(pendingModifiers);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+    };
+  }, [capturingModifierSetting]);
+
   const toggleSection = (key: string) => {
     const next = { ...openSections, [key]: !openSections[key] };
     void useMapStore.getState().setSetting("settingsOpenSections", JSON.stringify(next));
@@ -153,7 +217,7 @@ export default function SettingsModal() {
   useEffect(() => {
     if (!settingsOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !capturingActionRef.current) {
+      if (event.key === "Escape" && !capturingActionRef.current && !capturingModifierSettingRef.current) {
         void close();
       }
     };
@@ -200,9 +264,12 @@ export default function SettingsModal() {
 
   const resetAllShortcuts = () => {
     setCapturingAction(null);
+    setCapturingModifierSetting(null);
     setDraft((prev) => ({
       ...prev,
       keyboardShortcuts: JSON.stringify({ ...DEFAULT_SHORTCUTS }),
+      rotationKey: DEFAULT_ROTATION_KEY,
+      arrowZoomKey: DEFAULT_ARROW_ZOOM_KEY,
     }));
   };
 
@@ -220,7 +287,7 @@ export default function SettingsModal() {
         aria-modal="true"
         aria-labelledby="settings-heading"
         onKeyDown={(e) => {
-          if (capturingAction) return;
+          if (capturingAction || capturingModifierSetting) return;
           handleContainerArrowKeyDown(e, {
             onEscape: () => void close(),
           });
@@ -396,16 +463,6 @@ export default function SettingsModal() {
                     <input
                       type="checkbox"
                       className="h-4 w-4 rounded accent-blue-600"
-                      checked={draft.enableRotation !== "0"}
-                      onChange={(e) => setDraft({ ...draft, enableRotation: e.target.checked ? "1" : "0" })}
-                    />
-                    <span>Salli kartan kierto (Alt+Shift+veto)</span>
-                  </label>
-
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded accent-blue-600"
                       checked={draft.showCenterCrosshair !== "0"}
                       onChange={(e) => setDraft({ ...draft, showCenterCrosshair: e.target.checked ? "1" : "0" })}
                     />
@@ -430,26 +487,6 @@ export default function SettingsModal() {
                       onChange={(e) => setDraft({ ...draft, showGraticule: e.target.checked ? "1" : "0" })}
                     />
                     <span>Koordinaattiristikko kartalla</span>
-                  </label>
-
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded accent-blue-600"
-                      checked={draft.enableDoubleClickZoom === "1"}
-                      onChange={(e) => setDraft({ ...draft, enableDoubleClickZoom: e.target.checked ? "1" : "0" })}
-                    />
-                    <span>Zoomaa kaksoisklikkauksella</span>
-                  </label>
-
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded accent-blue-600"
-                      checked={draft.removePendingMarkerOnDblClick !== "0"}
-                      onChange={(e) => setDraft({ ...draft, removePendingMarkerOnDblClick: e.target.checked ? "1" : "0" })}
-                    />
-                    <span>Poista tallentamaton merkki ja lopeta mittauksen muokkaus kaksoisklikkauksella</span>
                   </label>
 
                   <label className="flex items-center gap-2.5 cursor-pointer">
@@ -1049,6 +1086,155 @@ export default function SettingsModal() {
                   />
                 </label>
 
+                {(() => {
+                  const rotationEnabled = draft.enableRotation !== "0";
+                  const capturingRotationKey = capturingModifierSetting === "rotationKey";
+                  const currentRotationKey =
+                    normalizeRotationKeyString(draft.rotationKey || DEFAULT_ROTATION_KEY) || DEFAULT_ROTATION_KEY;
+                  const isCustomized = currentRotationKey !== DEFAULT_ROTATION_KEY;
+                  return (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
+                      <label className="flex flex-1 cursor-pointer items-center gap-2.5">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded accent-blue-600"
+                          checked={rotationEnabled}
+                          onChange={(e) => {
+                            if (!e.target.checked && capturingRotationKey) setCapturingModifierSetting(null);
+                            setDraft((prev) => ({ ...prev, enableRotation: e.target.checked ? "1" : "0" }));
+                          }}
+                        />
+                        <div>
+                          <div className="font-medium text-slate-800 dark:text-zinc-200">
+                            Salli kartan kierto
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-zinc-400">
+                            Oletus: {formatRotationKeyLabel(DEFAULT_ROTATION_KEY)} + veto
+                          </div>
+                        </div>
+                      </label>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={!rotationEnabled}
+                          data-shortcut-capturing={capturingRotationKey ? "true" : undefined}
+                          onClick={() => {
+                            setCapturingAction(null);
+                            setCapturingModifierSetting(capturingRotationKey ? null : "rotationKey");
+                          }}
+                          className={`min-w-[124px] rounded-md border px-2.5 py-1 text-center text-xs font-mono transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                            capturingRotationKey
+                              ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-500/30 dark:border-blue-400 dark:bg-blue-950/60 dark:text-blue-300"
+                              : "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                          }`}
+                          title="Klikkaa tai paina Enter määrittääksesi kiertonäppäimen (Esc peruuttaa)"
+                        >
+                          {capturingRotationKey
+                            ? "Paina näppäintä..."
+                            : `${formatRotationKeyLabel(currentRotationKey)} + veto`}
+                        </button>
+                        {isCustomized && (
+                          <button
+                            type="button"
+                            disabled={!rotationEnabled}
+                            onClick={() => {
+                              if (capturingRotationKey) setCapturingModifierSetting(null);
+                              setDraft((prev) => ({ ...prev, rotationKey: DEFAULT_ROTATION_KEY }));
+                            }}
+                            className="rounded-md border border-slate-200 p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                            title="Palauta oletuskiertonäppäin"
+                            aria-label="Palauta oletuskiertonäppäin"
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {(() => {
+                  const capturingArrowZoomKey = capturingModifierSetting === "arrowZoomKey";
+                  const currentArrowZoomKey =
+                    normalizeRotationKeyString(draft.arrowZoomKey || DEFAULT_ARROW_ZOOM_KEY) || DEFAULT_ARROW_ZOOM_KEY;
+                  const isCustomized = currentArrowZoomKey !== DEFAULT_ARROW_ZOOM_KEY;
+                  return (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-slate-800 dark:text-zinc-200">
+                          Zoomaus nuolinäppäimillä
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-zinc-400">
+                          Oletus: {formatRotationKeyLabel(DEFAULT_ARROW_ZOOM_KEY)} + ↑ / ↓
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          data-shortcut-capturing={capturingArrowZoomKey ? "true" : undefined}
+                          onClick={() => {
+                            setCapturingAction(null);
+                            setCapturingModifierSetting(capturingArrowZoomKey ? null : "arrowZoomKey");
+                          }}
+                          className={`min-w-[124px] rounded-md border px-2.5 py-1 text-center text-xs font-mono transition ${
+                            capturingArrowZoomKey
+                              ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-500/30 dark:border-blue-400 dark:bg-blue-950/60 dark:text-blue-300"
+                              : "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                          }`}
+                          title="Klikkaa tai paina Enter määrittääksesi nuolizoomauksen pikanäppäimen (Esc peruuttaa)"
+                        >
+                          {capturingArrowZoomKey
+                            ? "Paina näppäintä..."
+                            : `${formatRotationKeyLabel(currentArrowZoomKey)} + ↑ / ↓`}
+                        </button>
+                        {isCustomized && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (capturingArrowZoomKey) setCapturingModifierSetting(null);
+                              setDraft((prev) => ({ ...prev, arrowZoomKey: DEFAULT_ARROW_ZOOM_KEY }));
+                            }}
+                            className="rounded-md border border-slate-200 p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:border-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                            title="Palauta oletusnäppäin nuolizoomaukselle"
+                            aria-label="Palauta oletusnäppäin nuolizoomaukselle"
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                  <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded accent-blue-600"
+                      checked={draft.enableDoubleClickZoom === "1"}
+                      onChange={(e) =>
+                        setDraft((prev) => ({ ...prev, enableDoubleClickZoom: e.target.checked ? "1" : "0" }))
+                      }
+                    />
+                    <span className="text-xs font-medium text-slate-800 dark:text-zinc-200">Zoomaa kaksoisklikkauksella</span>
+                  </label>
+
+                  <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded accent-blue-600"
+                      checked={draft.removePendingMarkerOnDblClick !== "0"}
+                      onChange={(e) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          removePendingMarkerOnDblClick: e.target.checked ? "1" : "0",
+                        }))
+                      }
+                    />
+                    <span className="text-xs font-medium text-slate-800 dark:text-zinc-200">Poista merkki tai lopeta muokkaus kaksoisklikkauksella</span>
+                  </label>
+                </div>
+
                 {shortcutConflicts.size > 0 && (
                   <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-300">
                     Huomio: sama pikanäppäin on määritetty useammalle toiminnolle. Korjaa korostetut rivit, jos haluat välttää päällekkäisyydet.
@@ -1093,7 +1279,10 @@ export default function SettingsModal() {
                                   <button
                                     type="button"
                                     data-shortcut-capturing={isCapturing ? "true" : undefined}
-                                    onClick={() => setCapturingAction(isCapturing ? null : def.id)}
+                                    onClick={() => {
+                                      setCapturingModifierSetting(null);
+                                      setCapturingAction(isCapturing ? null : def.id);
+                                    }}
                                     className={`min-w-[92px] rounded-md border px-2.5 py-1 text-center text-xs font-mono transition ${
                                       isCapturing
                                         ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-500/30 dark:border-blue-400 dark:bg-blue-950/60 dark:text-blue-300"
