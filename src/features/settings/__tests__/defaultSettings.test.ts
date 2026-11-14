@@ -27,5 +27,11 @@ describe("settings color and interaction defaults", () => {
     expect(SETTING_TOGGLES.map(([key]) => key)).toContain("removePendingMarkerOnDblClick");
     expect(DEFAULT_SETTINGS.enableTerrainRouting).toBe("1");
     expect(SETTING_TOGGLES.map(([key]) => key)).toContain("enableTerrainRouting");
+    expect(DEFAULT_SETTINGS.segmentLengthMinDistance).toBe("500");
+    expect(DEFAULT_SETTINGS.hideSegmentLengthsByZoom).toBe("1");
+    expect(DEFAULT_SETTINGS.segmentLengthsMinZoom).toBe("13");
+    expect(SETTING_TOGGLES.map(([key]) => key)).toContain("hideSegmentLengthsByZoom");
+    expect(SETTING_VALUE_KEYS).toContain("segmentLengthMinDistance");
+    expect(SETTING_VALUE_KEYS).toContain("segmentLengthsMinZoom");
   });
 });

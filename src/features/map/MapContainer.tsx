@@ -291,6 +291,8 @@ export default function MapContainer() {
           zIndex: 90,
         }),
         (() => {
+          const parsedMinSegDist = Number(settings.segmentLengthMinDistance ?? "500");
+          const parsedMinZoom = Number(settings.segmentLengthsMinZoom ?? "13");
           const mLayer = new VectorLayer({
             className: "ol-vector-layer",
             source: measureSrc.current,
@@ -301,6 +303,11 @@ export default function MapContainer() {
               },
               settings.showSegmentLengths !== "0",
               settings.measurementUnits ?? "metric",
+              {
+                minSegmentDistanceM: Number.isFinite(parsedMinSegDist) ? parsedMinSegDist : 500,
+                hideByZoom: settings.hideSegmentLengthsByZoom !== "0",
+                minZoomForSegments: Number.isFinite(parsedMinZoom) ? parsedMinZoom : 13,
+              },
             ),
             zIndex: 100,
           });
@@ -887,6 +894,8 @@ export default function MapContainer() {
     if (!measureLayerRef.current) return;
     const showSegments = settings.showSegmentLengths !== "0";
     const units = settings.measurementUnits ?? "metric";
+    const parsedMinSegDist = Number(settings.segmentLengthMinDistance ?? "500");
+    const parsedMinZoom = Number(settings.segmentLengthsMinZoom ?? "13");
     measureLayerRef.current.setStyle(
       measurementStyle(
         {
@@ -895,10 +904,18 @@ export default function MapContainer() {
         },
         showSegments,
         units,
+        {
+          minSegmentDistanceM: Number.isFinite(parsedMinSegDist) ? parsedMinSegDist : 500,
+          hideByZoom: settings.hideSegmentLengthsByZoom !== "0",
+          minZoomForSegments: Number.isFinite(parsedMinZoom) ? parsedMinZoom : 13,
+        },
       ),
     );
   }, [
     settings.showSegmentLengths,
+    settings.segmentLengthMinDistance,
+    settings.hideSegmentLengthsByZoom,
+    settings.segmentLengthsMinZoom,
     settings.measurementUnits,
     settings.savedMeasurementColor,
     settings.unsavedMeasurementColor,
