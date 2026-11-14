@@ -7,6 +7,7 @@ export interface MapState {
   settings: Record<string, string>;
   sources: LocalSource[];
   basemap: string;
+  previousBasemap: string | null;
   overlays: string[];
   overlayOrder: string[];
   basemapOrder: string[];
@@ -37,6 +38,7 @@ export interface MapState {
   setSettings: (settings: Record<string, string>) => Promise<void>;
   reloadSources: () => Promise<void>;
   setBasemap: (id: string) => void;
+  switchToPreviousBasemap: () => void;
   toggleOverlay: (id: string) => void;
   hideLayer: (id: string, role: "basemap" | "overlay") => void;
   hideLayers: (ids: string[]) => void;

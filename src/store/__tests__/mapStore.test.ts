@@ -13,10 +13,37 @@ describe("mapStore", () => {
   beforeEach(() => {
     useMapStore.setState({
       basemap: "src:1",
+      previousBasemap: null,
       overlays: ["src:10", "src:11"],
       overlayOrder: ["src:10", "src:11"],
       basemapOrder: ["src:1", "src:2"],
       sources: [
+        {
+          id: 1,
+          name: "Maanmittauslaitos",
+          base_path: "",
+          pattern: "{z}/{x}/{y}.png",
+          projection: "EPSG:3857",
+          role: "basemap",
+          opacity: 1,
+          min_zoom: 0,
+          max_zoom: 19,
+          attribution: "",
+          api_type: "xyz",
+          tile_size: 256,
+          layer_name: "",
+          style: "",
+          builtin_key: null,
+          is_default: false,
+          factory_json: null,
+          kind: "raster",
+          url: "https://example.com/{z}/{x}/{y}.png",
+          params: "{}",
+          auth: "",
+          note: "",
+          view_zoom_offset: 0,
+          view_magnification: 1,
+        },
         {
           id: 2,
           name: "OpenStreetMap",
@@ -95,5 +122,26 @@ describe("mapStore", () => {
     expect(state.measure).toBeNull();
     expect(state.activeUnsavedMeasurementId).toBeNull();
     expect(state.editingFeatureId).toBeNull();
+  });
+
+  it("switches back and forth to the previously used basemap unless hidden", () => {
+    useMapStore.getState().switchToPreviousBasemap();
+    expect(useMapStore.getState().basemap).toBe("src:1");
+
+    useMapStore.getState().setBasemap("src:2");
+    expect(useMapStore.getState().basemap).toBe("src:2");
+    expect(useMapStore.getState().previousBasemap).toBe("src:1");
+
+    useMapStore.getState().switchToPreviousBasemap();
+    expect(useMapStore.getState().basemap).toBe("src:1");
+    expect(useMapStore.getState().previousBasemap).toBe("src:2");
+
+    useMapStore.getState().switchToPreviousBasemap();
+    expect(useMapStore.getState().basemap).toBe("src:2");
+    expect(useMapStore.getState().previousBasemap).toBe("src:1");
+
+    useMapStore.getState().hideLayer("src:1", "basemap");
+    useMapStore.getState().switchToPreviousBasemap();
+    expect(useMapStore.getState().basemap).toBe("src:2");
   });
 });

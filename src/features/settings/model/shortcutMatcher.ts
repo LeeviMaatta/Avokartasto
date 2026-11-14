@@ -144,9 +144,13 @@ export function normalizeShortcutFromEvent(
   const parts: string[] = [];
   if (event.ctrlKey) parts.push("ctrl");
   if (event.altKey) parts.push("alt");
-  // Sisällytetään Shift vain, jos mukana on muu apunäppäin ja merkki on kirjain/numero/F-näppäin,
+  // Sisällytetään Shift vain, jos mukana on muu apunäppäin tai näppäin on ei-layout-sidonnainen (F-näppäin / Tab),
   // jotta esim. suomalaisella näppäimistöllä "/" (Shift+7) ei muutu "shift+/"-yhdistelmäksi.
-  if (event.shiftKey && ((hasModifier && /^[a-z0-9]$|^f\d{1,2}$/i.test(key)) || (!hasModifier && /^f\d{1,2}$/i.test(key)))) {
+  if (
+    event.shiftKey &&
+    ((hasModifier && /^[a-z0-9]$|^f\d{1,2}$|^tab$/i.test(key)) ||
+      (!hasModifier && /^(f\d{1,2}|tab)$/i.test(key)))
+  ) {
     parts.push("shift");
   }
   if (event.metaKey) parts.push("meta");

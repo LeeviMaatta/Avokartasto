@@ -9,6 +9,7 @@ const MOD_LABELS: Record<string, string> = {
 
 const KEY_LABELS: Record<string, string> = {
   space: "Space",
+  tab: "Tab",
   escape: "Esc",
   enter: "Enter",
   delete: "Delete",

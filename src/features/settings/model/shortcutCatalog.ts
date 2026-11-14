@@ -19,7 +19,8 @@ export type ShortcutActionId =
   | "zoomOut"
   | "locateUser"
   | "resetRotation"
-  | "toggleFullscreen";
+  | "toggleFullscreen"
+  | "switchPreviousBasemap";
 
 export interface ShortcutDefinition {
   id: ShortcutActionId;
@@ -52,6 +53,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
   { id: "locateUser", category: "map", label: "Oma sijainti", defaultKey: "g" },
   { id: "resetRotation", category: "map", label: "Käännä pohjoinen ylös", defaultKey: "n" },
   { id: "toggleFullscreen", category: "map", label: "Koko ruutu", defaultKey: "f" },
+  { id: "switchPreviousBasemap", category: "map", label: "Vaihda viimeksi käytetty karttataso", defaultKey: "v" },
 ];
 
 export const DEFAULT_SHORTCUTS: Record<ShortcutActionId, string> = Object.fromEntries(

@@ -3,7 +3,11 @@ import Feature from "ol/Feature";
 import LineString from "ol/geom/LineString";
 import { fromLonLat } from "ol/proj";
 import { getLength } from "ol/sphere";
-import { computeLogicalMeasurementSegments, measurementStyle } from "../featureStyles";
+import {
+  computeLogicalMeasurementSegments,
+  isSelectedMeasurementFeature,
+  measurementStyle,
+} from "../featureStyles";
 
 describe("featureStyles segment spacing and zoom visibility", () => {
   it("accumulates curved/angled segments along the true path when skipping intermediate points", () => {
@@ -64,5 +68,36 @@ describe("featureStyles segment spacing and zoom visibility", () => {
     });
     const stylesAlwaysAtZ11 = alwaysShownFn(feature, resZ11);
     expect(Array.isArray(stylesAlwaysAtZ11) ? stylesAlwaysAtZ11.length : 1).toBeGreaterThan(1);
+  });
+
+  it("renders segment distance labels only for the currently selected measurement", () => {
+    const a = fromLonLat([24.94, 60.17]) as [number, number];
+    const b = fromLonLat([24.95, 60.17]) as [number, number];
+    const resZ14 = 156543.03392804097 / 2 ** 14;
+
+    const unsaved1 = new Feature({ geometry: new LineString([a, b]), unsavedId: "unsaved-1" });
+    const unsaved2 = new Feature({ geometry: new LineString([a, b]), unsavedId: "unsaved-2" });
+    const saved5 = new Feature({ geometry: new LineString([a, b]), id: 5 });
+
+    const styleWithSelection = (editingId: number | null, activeUnsavedId: string | null) =>
+      measurementStyle({ saved: "#16a34a", unsaved: "#2563eb" }, true, "metric", {
+        minSegmentDistanceM: 500,
+        hideByZoom: true,
+        minZoomForSegments: 13,
+        isSelectedFeature: (f) => isSelectedMeasurementFeature(f, editingId, activeUnsavedId),
+      });
+
+    const whenUnsaved1Selected = styleWithSelection(null, "unsaved-1");
+    expect((whenUnsaved1Selected(unsaved1, resZ14) as unknown[]).length).toBeGreaterThan(1);
+    expect((whenUnsaved1Selected(unsaved2, resZ14) as unknown[]).length).toBe(1);
+    expect((whenUnsaved1Selected(saved5, resZ14) as unknown[]).length).toBe(1);
+
+    const whenSaved5Selected = styleWithSelection(5, null);
+    expect((whenSaved5Selected(saved5, resZ14) as unknown[]).length).toBeGreaterThan(1);
+    expect((whenSaved5Selected(unsaved1, resZ14) as unknown[]).length).toBe(1);
+
+    const whenNoneSelected = styleWithSelection(null, null);
+    expect((whenNoneSelected(unsaved1, resZ14) as unknown[]).length).toBe(1);
+    expect((whenNoneSelected(saved5, resZ14) as unknown[]).length).toBe(1);
   });
 });

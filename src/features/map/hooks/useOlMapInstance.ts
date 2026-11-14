@@ -15,7 +15,8 @@ import DragRotate from "ol/interaction/DragRotate";
 import KeyboardZoom from "ol/interaction/KeyboardZoom";
 import { useMapStore } from "../../../store/mapStore";
 import { setSetting as persistSetting } from "../../../infrastructure/tauri";
-import { lineStyle, markerStyle, measurementStyle } from "../styles/featureStyles";
+import { lineStyle, markerStyle } from "../styles/featureStyles";
+import { buildMeasurementLayerStyle } from "./layerSyncShared";
 import { recordDebugEvent, setDebugMap } from "../../debug/services/debugMonitor";
 import { focusMapViewport } from "../../../shared/keyboardNavigation";
 import { shouldFocusMapOnWheel } from "../../../shared/mapFocus";
@@ -53,7 +54,7 @@ export function useOlMapInstance({
 }: UseOlMapInstanceOptions) {
   useEffect(() => {
     const mapElement = elRef.current;
-    const settings = useMapStore.getState().settings;
+    const { settings, editingFeatureId, activeUnsavedMeasurementId } = useMapStore.getState();
     let rafId: number | null = null;
     let centerRafId: number | null = null;
     let saveViewTimeout: number | null = null;
@@ -75,24 +76,10 @@ export function useOlMapInstance({
       }
     };
 
-    const parsedMinSegDist = Number(settings.segmentLengthMinDistance ?? "500");
-    const parsedMinZoom = Number(settings.segmentLengthsMinZoom ?? "13");
     const mLayer = new VectorLayer({
       className: "ol-vector-layer",
       source: measureSrc.current,
-      style: measurementStyle(
-        {
-          saved: settings.savedMeasurementColor || "#16a34a",
-          unsaved: settings.unsavedMeasurementColor || "#2563eb",
-        },
-        settings.showSegmentLengths !== "0",
-        settings.measurementUnits ?? "metric",
-        {
-          minSegmentDistanceM: Number.isFinite(parsedMinSegDist) ? parsedMinSegDist : 500,
-          hideByZoom: settings.hideSegmentLengthsByZoom !== "0",
-          minZoomForSegments: Number.isFinite(parsedMinZoom) ? parsedMinZoom : 13,
-        },
-      ),
+      style: buildMeasurementLayerStyle(settings, editingFeatureId, activeUnsavedMeasurementId),
       zIndex: 100,
     });
     measureLayerRef.current = mLayer;

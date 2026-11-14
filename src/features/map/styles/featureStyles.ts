@@ -105,6 +105,26 @@ export interface MeasurementStyleOptions {
   minSegmentDistanceM?: number;
   hideByZoom?: boolean;
   minZoomForSegments?: number;
+  isSelectedFeature?: (feature: any) => boolean;
+}
+
+/** Checks whether a measurement feature matches the currently selected saved or unsaved measurement. */
+export function isSelectedMeasurementFeature(
+  feature: any,
+  editingFeatureId: number | null,
+  activeUnsavedMeasurementId: string | null,
+): boolean {
+  const savedId = feature?.get?.("id");
+  if (savedId !== undefined && savedId !== null) {
+    return editingFeatureId !== null && Number(savedId) === editingFeatureId;
+  }
+  const unsavedId = feature?.get?.("unsavedId");
+  return (
+    typeof unsavedId === "string" &&
+    unsavedId.length > 0 &&
+    activeUnsavedMeasurementId !== null &&
+    unsavedId === activeUnsavedMeasurementId
+  );
 }
 
 export const measurementStyle = (
@@ -134,8 +154,9 @@ export const measurementStyle = (
         ? Math.log2(156543.03392804097 / resolution)
         : Infinity;
     const zoomAllowsSegments = !hideByZoom || currentZoom >= minZoomForSegments - 1e-6;
+    const featureSelected = options?.isSelectedFeature ? options.isSelectedFeature(feature) : true;
 
-    if (showSegments && zoomAllowsSegments && geom instanceof LineString) {
+    if (showSegments && featureSelected && zoomAllowsSegments && geom instanceof LineString) {
       const coords = geom.getCoordinates();
       const segments = computeLogicalMeasurementSegments(coords, minSegmentDistanceM);
       for (let i = 0; i < segments.length; i++) {

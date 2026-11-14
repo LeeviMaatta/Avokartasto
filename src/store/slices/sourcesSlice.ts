@@ -5,12 +5,14 @@ export type SourcesSlice = Pick<
   MapState,
   | "sources"
   | "basemap"
+  | "previousBasemap"
   | "overlays"
   | "overlayOrder"
   | "basemapOrder"
   | "hiddenLayers"
   | "reloadSources"
   | "setBasemap"
+  | "switchToPreviousBasemap"
   | "toggleOverlay"
   | "hideLayer"
   | "hideLayers"
@@ -23,6 +25,7 @@ export type SourcesSlice = Pick<
 export const createSourcesSlice: MapSlice<SourcesSlice> = (set, get) => ({
   sources: [],
   basemap: "osm",
+  previousBasemap: null,
   overlays: [],
   overlayOrder: [],
   basemapOrder: [],
@@ -30,15 +33,43 @@ export const createSourcesSlice: MapSlice<SourcesSlice> = (set, get) => ({
 
   reloadSources: async () => {
     try {
-      set({ sources: await bridge.listSources(), persistenceError: null });
+      const sources = await bridge.listSources();
+      const prev = get().previousBasemap;
+      const keepPrev =
+        !prev ||
+        !prev.startsWith("src:") ||
+        sources.some((source) => `src:${source.id}` === prev && source.role === "basemap");
+      set({
+        sources,
+        persistenceError: null,
+        ...(keepPrev ? {} : { previousBasemap: null }),
+      });
     } catch (error) {
       console.error("Karttalähteiden lataus epäonnistui", error);
       set({ persistenceError: "Karttalähteitä ei voitu ladata." });
     }
   },
   setBasemap: (id) => {
-    set({ basemap: id });
+    const current = get().basemap;
+    set({
+      basemap: id,
+      ...(current && current !== id ? { previousBasemap: current } : {}),
+    });
     void get().setSetting("basemap", id);
+  },
+  switchToPreviousBasemap: () => {
+    const { basemap, previousBasemap, hiddenLayers, sources } = get();
+    if (!previousBasemap || previousBasemap === basemap) return;
+    if (hiddenLayers.includes(previousBasemap)) return;
+    if (
+      previousBasemap.startsWith("src:") &&
+      sources.length > 0 &&
+      !sources.some((source) => `src:${source.id}` === previousBasemap && source.role === "basemap")
+    ) {
+      return;
+    }
+    set({ basemap: previousBasemap, previousBasemap: basemap });
+    void get().setSetting("basemap", previousBasemap);
   },
   toggleOverlay: (id) => {
     const current = get().overlays;
@@ -55,7 +86,13 @@ export const createSourcesSlice: MapSlice<SourcesSlice> = (set, get) => ({
     const overlays = role === "overlay" ? get().overlays.filter((layer) => layer !== id) : get().overlays;
     const fallback = get().sources.find((source) => source.builtin_key === "osm");
     const nextBasemap = role === "basemap" && get().basemap === id && fallback ? `src:${fallback.id}` : null;
-    set({ hiddenLayers, overlays, ...(nextBasemap ? { basemap: nextBasemap } : {}) });
+    const clearPrevious = get().previousBasemap === id;
+    set({
+      hiddenLayers,
+      overlays,
+      ...(nextBasemap ? { basemap: nextBasemap } : {}),
+      ...(clearPrevious ? { previousBasemap: null } : {}),
+    });
     void get().setSetting("hiddenLayers", JSON.stringify(hiddenLayers));
     if (role === "overlay") void get().setSetting("overlays", JSON.stringify(overlays));
     if (nextBasemap) void get().setSetting("basemap", nextBasemap);
@@ -73,7 +110,14 @@ export const createSourcesSlice: MapSlice<SourcesSlice> = (set, get) => ({
       const chosen = fallback ?? anyVisibleBasemap;
       if (chosen) nextBasemap = `src:${chosen.id}`;
     }
-    set({ hiddenLayers, overlays, ...(nextBasemap ? { basemap: nextBasemap } : {}) });
+    const prevBasemap = get().previousBasemap;
+    const clearPrevious = Boolean(prevBasemap && idSet.has(prevBasemap));
+    set({
+      hiddenLayers,
+      overlays,
+      ...(nextBasemap ? { basemap: nextBasemap } : {}),
+      ...(clearPrevious ? { previousBasemap: null } : {}),
+    });
     void get().setSetting("hiddenLayers", JSON.stringify(hiddenLayers));
     if (overlaysChanged) void get().setSetting("overlays", JSON.stringify(overlays));
     if (nextBasemap) void get().setSetting("basemap", nextBasemap);
@@ -81,7 +125,17 @@ export const createSourcesSlice: MapSlice<SourcesSlice> = (set, get) => ({
   restoreLayer: (id, role) => {
     const hiddenLayers = get().hiddenLayers.filter((layer) => layer !== id);
     const overlays = role === "overlay" && !get().overlays.includes(id) ? [...get().overlays, id] : get().overlays;
-    set({ hiddenLayers, overlays, ...(role === "basemap" ? { basemap: id } : {}) });
+    const currentBasemap = get().basemap;
+    set({
+      hiddenLayers,
+      overlays,
+      ...(role === "basemap"
+        ? {
+            basemap: id,
+            ...(currentBasemap && currentBasemap !== id ? { previousBasemap: currentBasemap } : {}),
+          }
+        : {}),
+    });
     void get().setSetting("hiddenLayers", JSON.stringify(hiddenLayers));
     if (role === "overlay") void get().setSetting("overlays", JSON.stringify(overlays));
     if (role === "basemap") void get().setSetting("basemap", id);

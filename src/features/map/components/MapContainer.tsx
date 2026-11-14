@@ -78,6 +78,8 @@ export default function MapContainer() {
     basemap,
     sources,
     showTileBoundaries,
+    editingFeatureId,
+    activeUnsavedMeasurementId,
   });
 
   const { locating, geoError, setGeoError, handleLocateUser } = useMapNavigation({

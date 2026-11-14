@@ -12,6 +12,7 @@ import {
   parseRotationKey,
   parseShortcuts,
 } from "../model/keyboardShortcuts";
+import { matchGlobalShortcutAction } from "../../../app/useGlobalKeyboardShortcuts";
 
 describe("keyboardShortcuts", () => {
   it("normalizes keyboard events including Finnish Shift+7 slash and numpad keys", () => {
@@ -174,5 +175,79 @@ describe("keyboardShortcuts", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("handles Tab as a dedicated shortcut overriding text-input tabbing when bound", () => {
+    expect(
+      normalizeShortcutFromEvent({
+        key: "Tab",
+        code: "Tab",
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+        metaKey: false,
+      }),
+    ).toBe("tab");
+    expect(
+      normalizeShortcutFromEvent({
+        key: "Tab",
+        code: "Tab",
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: true,
+        metaKey: false,
+      }),
+    ).toBe("shift+tab");
+    expect(formatShortcutLabel("tab")).toBe("Tab");
+
+    const shortcuts = { ...DEFAULT_SHORTCUTS, switchPreviousBasemap: "tab" };
+    const tabEvent = {
+      key: "Tab",
+      code: "Tab",
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      metaKey: false,
+    };
+    const shiftTabEvent = {
+      ...tabEvent,
+      shiftKey: true,
+    };
+
+    expect(
+      matchGlobalShortcutAction(tabEvent, shortcuts, {
+        modalOpen: false,
+        settingsOpen: false,
+        weatherModalOpen: false,
+        inTextInput: false,
+      }),
+    ).toBe("switchPreviousBasemap");
+
+    expect(
+      matchGlobalShortcutAction(tabEvent, shortcuts, {
+        modalOpen: false,
+        settingsOpen: false,
+        weatherModalOpen: false,
+        inTextInput: true,
+      }),
+    ).toBe("switchPreviousBasemap");
+
+    expect(
+      matchGlobalShortcutAction(tabEvent, shortcuts, {
+        modalOpen: true,
+        settingsOpen: true,
+        weatherModalOpen: false,
+        inTextInput: false,
+      }),
+    ).toBeNull();
+
+    expect(
+      matchGlobalShortcutAction(shiftTabEvent, shortcuts, {
+        modalOpen: false,
+        settingsOpen: false,
+        weatherModalOpen: false,
+        inTextInput: false,
+      }),
+    ).toBeNull();
   });
 });

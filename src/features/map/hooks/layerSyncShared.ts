@@ -1,4 +1,5 @@
 import type { LocalSource } from "../../../infrastructure/tauri";
+import { isSelectedMeasurementFeature, measurementStyle } from "../styles/featureStyles";
 
 export const APP_LAYER_TYPE = "avokartasto-layer-type";
 export const APP_LAYER_ID = "avokartasto-layer-id";
@@ -37,4 +38,29 @@ export function sourceSignature(source: LocalSource | undefined, layerSettingsKe
     source.view_magnification,
     layerSettingsKey,
   ]);
+}
+
+/** Builds the OpenLayers style function for the measurement vector layer, showing segment labels only for the active measurement. */
+export function buildMeasurementLayerStyle(
+  settings: Record<string, string>,
+  editingFeatureId: number | null,
+  activeUnsavedMeasurementId: string | null,
+) {
+  const parsedMinSegDist = Number(settings.segmentLengthMinDistance ?? "500");
+  const parsedMinZoom = Number(settings.segmentLengthsMinZoom ?? "13");
+  return measurementStyle(
+    {
+      saved: settings.savedMeasurementColor || "#16a34a",
+      unsaved: settings.unsavedMeasurementColor || "#2563eb",
+    },
+    settings.showSegmentLengths !== "0",
+    settings.measurementUnits ?? "metric",
+    {
+      minSegmentDistanceM: Number.isFinite(parsedMinSegDist) ? parsedMinSegDist : 500,
+      hideByZoom: settings.hideSegmentLengthsByZoom !== "0",
+      minZoomForSegments: Number.isFinite(parsedMinZoom) ? parsedMinZoom : 13,
+      isSelectedFeature: (feature) =>
+        isSelectedMeasurementFeature(feature, editingFeatureId, activeUnsavedMeasurementId),
+    },
+  );
 }

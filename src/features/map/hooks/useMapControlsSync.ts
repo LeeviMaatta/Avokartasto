@@ -19,7 +19,7 @@ import DragPan from "ol/interaction/DragPan";
 import KeyboardZoom from "ol/interaction/KeyboardZoom";
 import Kinetic from "ol/Kinetic";
 import type { LocalSource } from "../../../infrastructure/tauri";
-import { measurementStyle } from "../styles/featureStyles";
+import { buildMeasurementLayerStyle } from "./layerSyncShared";
 import { createTileDebugLayer } from "./tileDebugLayer";
 
 interface UseMapControlsSyncOptions {
@@ -31,6 +31,8 @@ interface UseMapControlsSyncOptions {
   basemap: string;
   sources: LocalSource[];
   showTileBoundaries: boolean;
+  editingFeatureId: number | null;
+  activeUnsavedMeasurementId: string | null;
 }
 
 export function useMapControlsSync({
@@ -42,6 +44,8 @@ export function useMapControlsSync({
   basemap,
   sources,
   showTileBoundaries,
+  editingFeatureId,
+  activeUnsavedMeasurementId,
 }: UseMapControlsSyncOptions) {
   const scaleLineRef = useRef<ScaleLine | null>(null);
   const rotateControlRef = useRef<Rotate | null>(null);
@@ -244,27 +248,13 @@ export function useMapControlsSync({
 
   useEffect(() => {
     if (!measureLayerRef.current) return;
-    const showSegments = settings.showSegmentLengths !== "0";
-    const units = settings.measurementUnits ?? "metric";
-    const parsedMinSegDist = Number(settings.segmentLengthMinDistance ?? "500");
-    const parsedMinZoom = Number(settings.segmentLengthsMinZoom ?? "13");
     measureLayerRef.current.setStyle(
-      measurementStyle(
-        {
-          saved: settings.savedMeasurementColor || "#16a34a",
-          unsaved: settings.unsavedMeasurementColor || "#2563eb",
-        },
-        showSegments,
-        units,
-        {
-          minSegmentDistanceM: Number.isFinite(parsedMinSegDist) ? parsedMinSegDist : 500,
-          hideByZoom: settings.hideSegmentLengthsByZoom !== "0",
-          minZoomForSegments: Number.isFinite(parsedMinZoom) ? parsedMinZoom : 13,
-        },
-      ),
+      buildMeasurementLayerStyle(settings, editingFeatureId, activeUnsavedMeasurementId),
     );
   }, [
     measureLayerRef,
+    editingFeatureId,
+    activeUnsavedMeasurementId,
     settings.showSegmentLengths,
     settings.segmentLengthMinDistance,
     settings.hideSegmentLengthsByZoom,
