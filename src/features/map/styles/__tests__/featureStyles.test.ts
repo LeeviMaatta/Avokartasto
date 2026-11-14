@@ -170,8 +170,31 @@ describe("featureStyles segment spacing and zoom visibility", () => {
       theme: "light",
       uiStyle: "modern",
       isSelectedFeature: (f) => isSelectedMeasurementFeature(f, null, "unsaved-1"),
-    })(feature, resZ14) as Array<{ getText?: () => { getBackgroundFill?: () => { getColor?: () => string } } | null }>;
+    })(feature, resZ14) as Array<{
+      getText?: () => { getBackgroundFill?: () => { getColor?: () => string } } | null;
+      getRenderer?: () => ((coords: number[], state: { context: CanvasRenderingContext2D; pixelRatio: number }) => void) | null;
+    }>;
 
     expect(modernLight[1]?.getText?.()?.getBackgroundFill?.()?.getColor?.()).toBe("rgba(255, 255, 255, 0.95)");
+
+    const renderer = modernLight[1]?.getRenderer?.();
+    expect(typeof renderer).toBe("function");
+    const calls: string[] = [];
+    const mockCtx = {
+      save: () => calls.push("save"),
+      restore: () => calls.push("restore"),
+      translate: () => calls.push("translate"),
+      scale: () => calls.push("scale"),
+      beginPath: () => {},
+      roundRect: () => calls.push("roundRect"),
+      rect: () => calls.push("rect"),
+      fill: () => calls.push("fill"),
+      stroke: () => calls.push("stroke"),
+      measureText: () => ({ width: 48 }),
+      fillText: (txt: string) => calls.push(`fillText:${txt}`),
+    } as unknown as CanvasRenderingContext2D;
+    renderer?.([120, 240], { context: mockCtx, pixelRatio: 2 });
+    expect(calls).toContain("roundRect");
+    expect(calls.some((c) => c.startsWith("fillText:"))).toBe(true);
   });
 });

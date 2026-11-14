@@ -15,6 +15,8 @@ import { useMapControlsSync } from "../hooks/useMapControlsSync";
 import { useMapNavigation } from "../hooks/useMapNavigation";
 import { useMapVectorInteractions, type ContextMenuTarget } from "../hooks/useMapVectorInteractions";
 import FeatureContextMenu from "./FeatureContextMenu";
+import { MeasurementCursorOverlay } from "./MeasurementCursorBadge";
+import type { LiveMeasurementBadgeState } from "../../measurements/domain/liveMeasurementBadge";
 import { useDebugStore } from "../../debug/model/debugStore";
 
 export default function MapContainer() {
@@ -30,6 +32,7 @@ export default function MapContainer() {
   const viewRestored = useRef(false);
   const heldKeysByCode = useRef<Map<string, string>>(new Map());
   const measureLayerRef = useRef<VectorLayer<Feature> | null>(null);
+  const liveBadgeUpdaterRef = useRef<((next: LiveMeasurementBadgeState | null) => void) | null>(null);
 
   const basemap = useMapStore((s) => s.basemap);
   const overlays = useMapStore((s) => s.overlays);
@@ -128,6 +131,7 @@ export default function MapContainer() {
     measureSource: measureSrc,
     featureSource: featSrc,
     profileRequest,
+    badgeUpdaterRef: liveBadgeUpdaterRef,
     tool,
     measurementType: settings.measurementType ?? "distance",
     editingFeatureId,
@@ -143,6 +147,11 @@ export default function MapContainer() {
         aria-label="Karttanäkymä"
         className="absolute inset-0 outline-none"
         style={{ cursor: tool === "measure" ? "crosshair" : "default" }}
+      />
+      <MeasurementCursorOverlay
+        badgeUpdaterRef={liveBadgeUpdaterRef}
+        viewportRef={el}
+        opacity={overlayOpacity}
       />
       {showCenterCrosshair && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center z-20" style={{ opacity: overlayOpacity }}>

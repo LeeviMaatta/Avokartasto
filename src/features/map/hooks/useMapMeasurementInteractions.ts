@@ -25,6 +25,8 @@ import {
   suppressMeasurementSingleClick,
 } from "../../measurements/domain/measurementEndpointAction";
 import { toMeasurementLinkKey } from "../../measurements/domain/measurementSelection";
+import type { LiveMeasurementBadgeState } from "../../measurements/domain/liveMeasurementBadge";
+import { attachLiveDrawBadge } from "./liveDrawBadge";
 import { useMapStore } from "../../../store/mapStore";
 
 interface MapMeasurementOptions {
@@ -32,6 +34,7 @@ interface MapMeasurementOptions {
   measureSource: MutableRefObject<VectorSource>;
   featureSource?: MutableRefObject<VectorSource>;
   profileRequest: MutableRefObject<number>;
+  badgeUpdaterRef?: MutableRefObject<((next: LiveMeasurementBadgeState | null) => void) | null>;
   tool: string;
   measurementType: string;
   editingFeatureId: number | null;
@@ -43,6 +46,7 @@ export function useMapMeasurementInteractions({
   measureSource,
   featureSource,
   profileRequest,
+  badgeUpdaterRef,
   tool,
   measurementType,
   editingFeatureId,
@@ -257,6 +261,9 @@ export function useMapMeasurementInteractions({
     viewport.addEventListener("pointerup", handlePointerUp);
     if (draw) map.addInteraction(draw);
     map.addInteraction(modify);
+    const cleanupLiveBadge = attachLiveDrawBadge(map, draw, viewport, (next) => {
+      badgeUpdaterRef?.current?.(next);
+    });
 
     if (draw && measurementType !== "area" && pendingEndpointStartRef.current) {
       const pending = pendingEndpointStartRef.current;
@@ -268,6 +275,7 @@ export function useMapMeasurementInteractions({
     }
 
     return () => {
+      cleanupLiveBadge();
       setActiveDrawingMeasurement(false);
       unsubscribeSelection();
       viewport.removeEventListener("pointerdown", handlePointerDown, true);
