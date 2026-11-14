@@ -4,12 +4,12 @@ import BaseLayer from "ol/layer/Base";
 import TileLayer from "ol/layer/Tile";
 import VectorTileLayer from "ol/layer/VectorTile";
 import TileWMS from "ol/source/TileWMS";
-import { buildBackdropLayer, buildLayer, sourceId } from "../layers";
-import { BACKDROP_MAX_ZOOM, preloadBackdropLayer } from "../sources/backdropCache";
-import { buildCopernicusWmsParams } from "../sources/copernicusParams";
+import { buildBackdropLayer, buildLayer, sourceId } from "../../layers/domain/layerBuilder";
+import { BACKDROP_MAX_ZOOM, preloadBackdropLayer } from "../services/backdropCache";
+import { buildCopernicusWmsParams } from "../services/copernicusParams";
 import { useMapStore } from "../../../store/mapStore";
-import type { LocalSource } from "../../../infrastructure/tauriBridge";
-import { recordDebugEvent, recordTileEvent, recordTileStart } from "../../debug/debugMonitor";
+import type { LocalSource } from "../../../infrastructure/tauri";
+import { recordDebugEvent, recordTileEvent, recordTileStart } from "../../debug/services/debugMonitor";
 
 const APP_LAYER_TYPE = "avokartasto-layer-type";
 const APP_LAYER_ID = "avokartasto-layer-id";

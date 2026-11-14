@@ -1,4 +1,4 @@
-import { exportGeoJsonFile, type ExportResult } from "../../../shared/exportFile";
+import { exportGeoJsonFile, type ExportResult } from "../../../infrastructure/export/exportFile";
 import type { Measure } from "../../map/model/mapTypes";
 
 export type { ExportResult };

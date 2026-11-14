@@ -1,7 +1,7 @@
 import { useEffect, type MutableRefObject } from "react";
 import GeoJSON from "ol/format/GeoJSON";
 import VectorSource from "ol/source/Vector";
-import { listFeatures } from "../../../infrastructure/tauriBridge";
+import { listFeatures } from "../../../infrastructure/tauri";
 
 interface MapFeaturesOptions {
   featureSource: MutableRefObject<VectorSource>;

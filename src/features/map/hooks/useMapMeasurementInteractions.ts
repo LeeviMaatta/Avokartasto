@@ -10,7 +10,7 @@ import VectorSource from "ol/source/Vector";
 import OlMap from "ol/Map";
 import { toLonLat } from "ol/proj";
 import { getArea, getLength } from "ol/sphere";
-import { elevationBatch } from "../../location-info/elevationService";
+import { elevationBatch } from "../../location-info/services/elevationService";
 import {
   ensureUnsavedMeasurementId,
   findTargetMeasurementFeature,

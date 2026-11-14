@@ -8,8 +8,8 @@ import {
   terrainFetchBinaryBackend,
   terrainOverpassQueryBackend,
 } from "../../../infrastructure/tauri/terrainBridge";
-import { fetchWithDebug } from "../../debug/debugFetch";
-import { recordDebugEvent, setNetworkRequestActive } from "../../debug/debugMonitor";
+import { fetchWithDebug } from "../../debug/services/debugFetch";
+import { recordDebugEvent, setNetworkRequestActive } from "../../debug/services/debugMonitor";
 import {
   TERRAIN_WATER,
   type TerrainRouteOptions,

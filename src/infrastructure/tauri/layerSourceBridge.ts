@@ -1,5 +1,5 @@
 import { invokeTauri } from "./runtime";
-import type { MapSource } from "../../features/map/sources/model/sourceTypes";
+import type { MapSource } from "../../shared/types/sourceTypes";
 
 export type LocalSource = MapSource;
 

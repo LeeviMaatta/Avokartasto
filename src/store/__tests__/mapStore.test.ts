@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../infrastructure/tauriBridge", () => ({
+vi.mock("../../infrastructure/tauri", () => ({
   getSettings: vi.fn(async () => ({})),
   listSources: vi.fn(async () => []),
   setSetting: vi.fn(async () => {}),

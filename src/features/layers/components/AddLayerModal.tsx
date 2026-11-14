@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { LocalSource } from "../../../infrastructure/tauriBridge";
+import type { LocalSource } from "../../../infrastructure/tauri";
 import { focusFirstNavigable, focusMapViewport, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 
 export type NewLayerSource = {

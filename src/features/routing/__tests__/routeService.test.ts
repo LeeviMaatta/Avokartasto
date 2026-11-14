@@ -3,7 +3,7 @@ import {
   decodePolyline,
   formatRouteDistance,
   formatRouteDuration,
-} from "../routeService";
+} from "../services/routeService";
 
 describe("routeService", () => {
   it("decodes precision-5 polylines into [lon, lat] pairs", () => {

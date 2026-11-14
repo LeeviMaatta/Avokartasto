@@ -1,9 +1,9 @@
 import { create } from "zustand";
-import * as bridge from "../infrastructure/tauriBridge";
-import type { LocalSource } from "../infrastructure/tauriBridge";
+import * as bridge from "../infrastructure/tauri";
+import type { LocalSource } from "../infrastructure/tauri";
 import { DEFAULT_SETTINGS } from "../features/settings/model/defaultSettings";
 import type { Measure, ProfilePoint, SelectedFeature, Tool } from "../features/map/model/mapTypes";
-import type { RouteMode, RoutePoint, RouteResult } from "../features/routing/routeService";
+import type { RouteMode, RoutePoint, RouteResult } from "../features/routing/services/routeService";
 
 export type { Tool } from "../features/map/model/mapTypes";
 

@@ -8,7 +8,7 @@ import VectorSource from "ol/source/Vector";
 import { getArea, getLength } from "ol/sphere";
 import { Trash2, Pencil } from "lucide-react";
 import { useMapStore } from "../../../store/mapStore";
-import { deleteFeature } from "../../../infrastructure/tauriBridge";
+import { deleteFeature } from "../../../infrastructure/tauri";
 import { requestConfirmation } from "../../../app/confirmation";
 import {
   clearSavedEditFeatures,

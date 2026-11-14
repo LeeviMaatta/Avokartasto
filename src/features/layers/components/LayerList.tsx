@@ -1,5 +1,5 @@
 import { GripVertical, ChevronDown, ChevronRight, MoreHorizontal, Folder, Eye, EyeOff } from "lucide-react";
-import { usePersistedBool, usePersistedStringSet } from "../../settings/model/persistedUiState";
+import { usePersistedBool, usePersistedStringSet } from "../../settings/hooks/persistedUiState";
 import type { LayerListProps } from "../model/layerListTypes";
 
 export default function LayerList({

@@ -1,5 +1,5 @@
 import type { MouseEvent, PointerEvent } from "react";
-import type { LocalSource } from "../../../infrastructure/tauriBridge";
+import type { LocalSource } from "../../../infrastructure/tauri";
 
 export type LayerGroup = {
   id: string;

@@ -1,4 +1,4 @@
-import type { UserFeature } from "../../../infrastructure/tauriBridge";
+import type { UserFeature } from "../../../infrastructure/tauri";
 
 export type MarkerFolder = { id: string; name: string; visible: boolean };
 

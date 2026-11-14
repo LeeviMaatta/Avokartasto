@@ -4,8 +4,8 @@ import View from "ol/View";
 import TileLayer from "ol/layer/Tile";
 import XYZ from "ol/source/XYZ";
 import { fromLonLat } from "ol/proj";
-import { clampDebugPosition, resolveDebugPosition, toRelativeDebugPosition } from "../DebugOverlay";
-import { countTilesInView } from "../debugMonitor";
+import { clampDebugPosition, resolveDebugPosition, toRelativeDebugPosition } from "../components/DebugOverlay";
+import { countTilesInView } from "../services/debugMonitor";
 import { DEBUG_VALUES, DEFAULT_DEBUG_SETTINGS, parseDebugSettings } from "../model/debugTypes";
 
 describe("DebugOverlay positioning", () => {

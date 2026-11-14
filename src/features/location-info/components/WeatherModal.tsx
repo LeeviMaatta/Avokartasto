@@ -1,6 +1,6 @@
 import { ArrowUp, Cloud, Droplets, Eye, Gauge, Wind, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { fetchForecast, type DetailedWeather, type WeatherForecast } from "../weatherService";
+import { fetchForecast, type DetailedWeather, type WeatherForecast } from "../services/weatherService";
 import WeatherForecastView from "./WeatherForecastView";
 import { focusFirstNavigable, focusMapViewport, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 

@@ -1,6 +1,6 @@
 import { ArrowUp, CloudRain, Droplets, Sun, Sunrise, Sunset, Wind } from "lucide-react";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { formatLocalTime, type ForecastDay, type ForecastHour, type WeatherForecast } from "../weatherService";
+import { formatLocalTime, type ForecastDay, type ForecastHour, type WeatherForecast } from "../services/weatherService";
 import { isTextInputTarget } from "../../settings/model/keyboardShortcuts";
 
 const iconUrl = (icon: string) => `https://openweathermap.org/img/wn/${icon}@2x.png`;

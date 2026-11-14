@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useMapStore } from "../store/mapStore";
-import { useDebugStore } from "../features/debug/debugStore";
+import { useDebugStore } from "../features/debug/model/debugStore";
 import {
   isTextInputTarget,
   matchesShortcut,
