@@ -69,5 +69,3 @@ export const SOURCE_KINDS: Record<ApiType, SourceKind> = {
   shapefile: "features",
   img: "raster",
 };
-
-export const isApiType = (value: string): value is ApiType => value in SOURCE_KINDS;

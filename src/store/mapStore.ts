@@ -5,8 +5,7 @@ import { DEFAULT_SETTINGS } from "../features/settings/model/defaultSettings";
 import type { Measure, ProfilePoint, SelectedFeature, Tool } from "../features/map/model/mapTypes";
 import type { RouteMode, RoutePoint, RouteResult } from "../features/routing/routeService";
 
-export type { Measure, ProfilePoint, SelectedFeature, Tool } from "../features/map/model/mapTypes";
-export { DEFAULT_SETTINGS } from "../features/settings/model/defaultSettings";
+export type { Tool } from "../features/map/model/mapTypes";
 
 interface State {
   settings: Record<string, string>;
@@ -48,12 +47,10 @@ interface State {
   restoreLayer: (id: string, role: "basemap" | "overlay") => void;
   unhideLayers: (ids: string[]) => void;
   reorderOverlays: (fromId: string, toId: string) => void;
-  reorderLayerList: (kind: "overlay" | "basemap", fromId: string, toId: string) => void;
   setLayerOrder: (kind: "overlay" | "basemap", ids: string[]) => void;
   bumpFeatures: () => void;
   clearPersistenceError: () => void;
   toggleTool: (nextTool: Tool) => void;
-  setPendingMarker: (coordinates: [number, number] | null) => void;
   setRoutePoint: (index: number, point: RoutePoint | null) => void;
   addRouteWaypoint: () => void;
   removeRoutePoint: (index: number) => void;
@@ -231,19 +228,6 @@ export const useMapStore = create<State>((set, get) => ({
     set({ overlays: current });
     void get().setSetting("overlays", JSON.stringify(current));
   },
-  reorderLayerList: (kind, fromId, toId) => {
-    const key = kind === "overlay" ? "overlayOrder" : "basemapOrder";
-    const current = [...get()[key]];
-    if (!current.includes(fromId)) current.push(fromId);
-    if (!current.includes(toId)) current.push(toId);
-    const from = current.indexOf(fromId);
-    const to = current.indexOf(toId);
-    if (from < 0 || to < 0 || from === to) return;
-    current.splice(from, 1);
-    current.splice(to, 0, fromId);
-    set(kind === "overlay" ? { overlayOrder: current } : { basemapOrder: current });
-    void get().setSetting(key, JSON.stringify(current));
-  },
   setLayerOrder: (kind, ids) => {
     const key = kind === "overlay" ? "overlayOrder" : "basemapOrder";
     const unique = [...new Set(ids)];
@@ -268,7 +252,6 @@ export const useMapStore = create<State>((set, get) => ({
       selectedFeature: null,
     });
   },
-  setPendingMarker: (coordinates) => set({ pendingMarker: coordinates }),
   setRoutePoint: (index, point) => {
     const next = [...get().routePoints];
     if (index >= 0 && index < next.length) {

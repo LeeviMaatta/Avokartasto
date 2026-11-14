@@ -6,7 +6,6 @@ import Point from "ol/geom/Point";
 import LineString from "ol/geom/LineString";
 import { getLength } from "ol/sphere";
 import { formatDistance } from "../../measurements/domain/measurementFormatting";
-import type { UiStyle } from "../../settings/model/settingTypes";
 
 export const lineStyle = (color: string) =>
   new Style({
@@ -195,7 +194,6 @@ function buildMarkerSvg(color: string, theme: "light" | "dark"): string {
 
 export const markerStyle = (
   color: string,
-  _uiStyle: UiStyle = "modern",
   theme: "light" | "dark" = "light",
 ) => {
   const key = `${color}:${theme}`;

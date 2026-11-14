@@ -92,11 +92,6 @@ body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Ro
   border-color: rgba(255, 255, 255, 0.16);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
 }
-.ol-overviewmap {
-  bottom: 2.5rem;
-  right: 0.75rem;
-  left: auto;
-}
 .ol-overviewmap .ol-overviewmap-map {
   width: 160px;
   height: 120px;
@@ -125,13 +120,6 @@ html[data-dark-map-tiles="true"] .ol-layer:not(.ol-vector-layer) canvas {
 }
 
 [data-ui-style="retro"] * {
-  border-radius: 0px !important;
-}
-
-[data-ui-style="retro"] .rounded,
-[data-ui-style="retro"] .rounded-lg,
-[data-ui-style="retro"] .rounded-xl,
-[data-ui-style="retro"] .rounded-2xl {
   border-radius: 0px !important;
 }
 

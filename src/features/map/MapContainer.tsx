@@ -36,7 +36,6 @@ import DragRotate from "ol/interaction/DragRotate";
 import KeyboardZoom from "ol/interaction/KeyboardZoom";
 import Kinetic from "ol/Kinetic";
 import { LocateFixed } from "lucide-react";
-import { requestConfirmation } from "../../app/confirmation";
 import { lineStyle, markerStyle, measurementStyle } from "./styles/featureStyles";
 import {
   clearSavedEditFeatures,
@@ -284,19 +283,17 @@ export default function MapContainer() {
               });
             }
             const {
-              uiStyle,
               theme,
               savedMarkerColor = "#dc2626",
               unsavedMarkerColor = "#f97316",
               savedMeasurementColor = "#16a34a",
             } = useMapStore.getState().settings;
-            const resolvedUiStyle = uiStyle === "classic" || uiStyle === "retro" ? uiStyle : "modern";
             const resolvedTheme = theme === "dark" ? "dark" : "light";
             if (feature.get("isPending")) {
-              return markerStyle(unsavedMarkerColor, resolvedUiStyle, resolvedTheme);
+              return markerStyle(unsavedMarkerColor, resolvedTheme);
             }
             return feature.getGeometry()?.getType() === "Point"
-              ? markerStyle(savedMarkerColor, resolvedUiStyle, resolvedTheme)
+              ? markerStyle(savedMarkerColor, resolvedTheme)
               : lineStyle(savedMeasurementColor);
           },
           zIndex: 90,

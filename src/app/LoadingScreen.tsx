@@ -5,14 +5,12 @@ interface LoadingScreenProps {
   loading: boolean;
   uiStyle?: UiStyle;
   theme?: string;
-  onFinished?: () => void;
 }
 
 export default function LoadingScreen({
   loading,
   uiStyle = "modern",
   theme = "light",
-  onFinished,
 }: LoadingScreenProps) {
   const [visible, setVisible] = useState(true);
   const [fading, setFading] = useState(false);
@@ -51,7 +49,6 @@ export default function LoadingScreen({
         setFading(true);
         hideTimer = setTimeout(() => {
           setVisible(false);
-          onFinished?.();
         }, 300);
       }, 100);
       return () => {
@@ -59,7 +56,7 @@ export default function LoadingScreen({
         if (hideTimer !== undefined) clearTimeout(hideTimer);
       };
     }
-  }, [loading, onFinished]);
+  }, [loading]);
 
   if (!visible) return null;
 

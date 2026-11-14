@@ -19,7 +19,6 @@ interface DebugState {
   reset: () => Promise<void>;
   refresh: (snapshot: DebugSnapshot) => void;
   record: (event: Omit<DebugEvent, "timestamp">) => void;
-  clearEvents: () => void;
 }
 
 export const useDebugStore = create<DebugState>((set, get) => ({
@@ -40,7 +39,4 @@ export const useDebugStore = create<DebugState>((set, get) => ({
     const events = [...get().events, { ...event, timestamp: Date.now() }].slice(-MAX_EVENTS);
     set({ events });
   },
-  clearEvents: () => set({ events: [] }),
 }));
-
-export const debugStore = useDebugStore;

@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::State;
 
 use crate::{e, tiles::invalidate_tile_cache_setting, Db, Res};
 use std::collections::HashMap;
@@ -194,11 +194,6 @@ pub fn set_settings(db: State<Db>, settings: HashMap<String, String>) -> Res<()>
         crate::secrets::set_secret(&key, &value)?;
     }
     Ok(())
-}
-
-#[allow(dead_code)]
-pub fn app_db_ready(app: &AppHandle) -> bool {
-    app.try_state::<Db>().is_some()
 }
 
 #[cfg(test)]

@@ -86,7 +86,7 @@ function pointsClose(a: [number, number], b: [number, number]): boolean {
 /**
  * Yhdistää OSM-multipolygonin peräkkäisistä way-segmenteistä suljetut renkaat.
  */
-export function assembleMultipolygonRings(segments: [number, number][][]): [number, number][][] {
+function assembleMultipolygonRings(segments: [number, number][][]): [number, number][][] {
   const closed: [number, number][][] = [];
   const open = segments.filter((seg) => seg.length >= 2).map((seg) => [...seg]);
 

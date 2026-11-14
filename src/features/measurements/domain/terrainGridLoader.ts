@@ -11,20 +11,16 @@ import {
 import { fetchWithDebug } from "../../debug/debugFetch";
 import { recordDebugEvent, setNetworkRequestActive } from "../../debug/debugMonitor";
 import {
-  TERRAIN_SWAMP,
   TERRAIN_WATER,
   type TerrainRouteOptions,
   type TerrainRouteStats,
 } from "./terrainRouting";
 import {
-  assembleMultipolygonRings,
   classifyWetlandFlags,
   executeTerrainRouteCompute,
   rasterizeOverpassElementsToGrid,
   rasterizeVectorObstaclesToGrid,
   type OverpassElement,
-  type OverpassMember,
-  type OverpassPoint,
   type TerrainComputeInput,
   type TerrainComputeOutput,
   type TerrainProfilePoint,
@@ -34,16 +30,10 @@ import {
 import type { TerrainWorkerRequest, TerrainWorkerResponse } from "./terrainWorker";
 
 export {
-  assembleMultipolygonRings,
   classifyWetlandFlags,
   rasterizeOverpassElementsToGrid,
   rasterizeVectorObstaclesToGrid,
   type OverpassElement,
-  type OverpassMember,
-  type OverpassPoint,
-  type TerrainProfilePoint,
-  type VectorObstaclePolygon,
-  type VectorObstaclePolyline,
 };
 
 const EARTH_HALF_CIRC = 20037508.342789244;

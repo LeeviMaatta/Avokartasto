@@ -45,12 +45,6 @@ export interface TerrainRouteStats {
   routedClimbM: number;
 }
 
-export interface TerrainRouteResult {
-  /** Reitin koordinaatit muodossa [lon, lat][] (WGS84 / EPSG:4326) */
-  coordinates: [number, number][];
-  stats: TerrainRouteStats;
-}
-
 interface GridPoint {
   x: number;
   y: number;

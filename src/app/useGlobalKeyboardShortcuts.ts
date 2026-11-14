@@ -8,7 +8,7 @@ import {
   type ShortcutActionId,
 } from "../features/settings/model/keyboardShortcuts";
 
-export function dispatchShortcutEvent(name: string, detail?: unknown): void {
+function dispatchShortcutEvent(name: string, detail?: unknown): void {
   window.dispatchEvent(new CustomEvent(name, { detail }));
 }
 
@@ -71,7 +71,6 @@ export function useGlobalKeyboardShortcuts(): void {
               profileVisible: false,
               profileError: null,
             });
-            dispatchShortcutEvent("kb-focus-measure-tool");
           }
           break;
         case "toggleTheme":

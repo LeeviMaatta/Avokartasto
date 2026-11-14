@@ -67,8 +67,6 @@ export default function LayerSwitcher() {
   const [newGroupModalOpen, setNewGroupModalOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [editDraft, setEditDraft] = useState<LocalSource | null>(null);
-  const [editLayer, setEditLayer] = useState<{ id: string; name: string; overlay: boolean } | null>(null);
-  const [selectedBasemap, setSelectedBasemap] = useState(basemap);
   const [viewDraft, setViewDraft] = useState<LayerViewDraft>({ zoomOffset: 0, magnification: 1 });
   const [addOpen, setAddOpen] = useState(false);
   const [folderMenuOpen, setFolderMenuOpen] = useState(false);
@@ -527,10 +525,6 @@ export default function LayerSwitcher() {
     }
     setViewDraft(savedView);
     if (source) setEditDraft({ ...source });
-    else {
-      setSelectedBasemap(basemap);
-      setEditLayer({ id: menu.id, name: menu.name, overlay: menu.overlay });
-    }
   };
 
   const saveViewSettings = async (id: string) => {
@@ -583,13 +577,6 @@ export default function LayerSwitcher() {
       toggleOverlay(`src:${editDraft.id}`);
     }
     setEditDraft(null);
-  };
-
-  const saveLayerEdit = async () => {
-    if (!editLayer) return;
-    await saveViewSettings(editLayer.id);
-    setBasemap(selectedBasemap);
-    setEditLayer(null);
   };
 
   const duplicate = async () => {
@@ -956,15 +943,11 @@ export default function LayerSwitcher() {
       )}
       <LayerEditorModal
         editDraft={editDraft}
-        editLayer={editLayer}
-        selectedBasemap={selectedBasemap}
         viewDraft={viewDraft}
-        onSelectedBasemapChange={setSelectedBasemap}
         onEditDraftChange={setEditDraft}
         onViewDraftChange={setViewDraft}
-        onClose={() => { setEditDraft(null); setEditLayer(null); }}
+        onClose={() => setEditDraft(null)}
         onSaveSource={() => void saveSource()}
-        onSaveLayer={() => void saveLayerEdit()}
       />
       <FolderEditor folder={folderEdit} name={folderEditName} onNameChange={setFolderEditName} onClose={() => setFolderEdit(null)} onSave={saveFolderEdit} />
     </>
