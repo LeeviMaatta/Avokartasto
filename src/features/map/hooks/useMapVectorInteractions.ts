@@ -9,6 +9,7 @@ import Polygon from "ol/geom/Polygon";
 import { toLonLat } from "ol/proj";
 import type VectorSource from "ol/source/Vector";
 import { useMapStore } from "../../../store/mapStore";
+import { useDrawLayerStore } from "../../layers/model/drawLayerStore";
 import { applyMeasurementClickSelection } from "../../measurements/domain/measurementClickSelect";
 import { shouldIgnoreMeasurementSingleClick } from "../../measurements/domain/measurementEndpointAction";
 import { clearSavedEditFeatures } from "../../measurements/domain/measurementSource";
@@ -80,6 +81,10 @@ export function useMapVectorInteractions({
     if (!map) return;
 
     const handleSingleClick = async (e: MapBrowserEvent<UIEvent>) => {
+      const drawState = useDrawLayerStore.getState();
+      if (drawState.activeDrawSourceId !== null || drawState.adjustingImageSourceId !== null) {
+        return;
+      }
       const state = useMapStore.getState();
       if (state.tool === "route" && state.routePickTarget !== null) {
         const [lon, lat] = toLonLat(e.coordinate);

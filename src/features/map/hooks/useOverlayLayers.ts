@@ -4,6 +4,7 @@ import type BaseLayer from "ol/layer/Base";
 import TileLayer from "ol/layer/Tile";
 import VectorTileLayer from "ol/layer/VectorTile";
 import { buildLayer, sourceId } from "../../layers/domain/layerBuilder";
+import { useDrawLayerStore } from "../../layers/model/drawLayerStore";
 import type { LocalSource } from "../../../infrastructure/tauri";
 import { recordDebugEvent, recordTileEvent, recordTileStart } from "../../debug/services/debugMonitor";
 import { APP_LAYER_ID, APP_LAYER_SIGNATURE, APP_LAYER_TYPE, sourceSignature } from "./layerSyncShared";
@@ -73,8 +74,14 @@ export function useOverlayLayers(
       if (src && src.role !== "overlay") return;
       const sig = sourceSignature(src, layerSettingsKey);
       const existing = existingLayers.get(id);
-      if (existing && sig && existing.get(APP_LAYER_SIGNATURE) === sig) {
+      const isActiveDrawLayer =
+        existing &&
+        src?.api_type === "draw" &&
+        existing.get("drawSourceId") === src.id &&
+        useDrawLayerStore.getState().activeDrawSourceId === src.id;
+      if (existing && ((sig && existing.get(APP_LAYER_SIGNATURE) === sig) || isActiveDrawLayer)) {
         if (src) existing.setOpacity(src.opacity);
+        if (sig) existing.set(APP_LAYER_SIGNATURE, sig);
         existing.setZIndex(10 + index);
         nextOverlayRefs.push(existing);
         return;

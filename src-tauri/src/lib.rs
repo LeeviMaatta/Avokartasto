@@ -97,6 +97,7 @@ pub fn run() {
             sources::commands::add_source_config,
             sources::commands::update_source_config,
             sources::commands::reset_source_to_default,
+            sources::commands::fetch_remote_asset,
             features::list_features,
             features::add_feature,
             features::update_feature,

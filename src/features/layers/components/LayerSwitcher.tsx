@@ -1,4 +1,4 @@
-import { Layers, MoreHorizontal } from "lucide-react";
+import { Layers, Plus } from "lucide-react";
 import { useState, useEffect, useRef, type MouseEvent } from "react";
 import { useMapStore } from "../../../store/mapStore";
 import type { LocalSource } from "../../../infrastructure/tauri";
@@ -18,6 +18,8 @@ import { useFeatureDrag } from "../../markers/hooks/useFeatureDrag";
 import { LayerContextMenu } from "./LayerContextMenu";
 import { GroupContextMenu } from "./GroupContextMenu";
 import { LayerActionsMenu } from "./LayerActionsMenu";
+import { useDrawLayerStore } from "../model/drawLayerStore";
+import { parseLayerParams } from "../model/layerTypeConfig";
 
 export default function LayerSwitcher() {
   const [openLayers, toggleOpenLayers] = usePersistedBool("layersPanelOpen", true);
@@ -214,8 +216,9 @@ export default function LayerSwitcher() {
               <Layers size={16} /> Karttatasot
             </button>
             <button
-              className="rounded p-1 text-[#1671a8] hover:bg-slate-100"
-              title="Karttatason toiminnot"
+              className="rounded p-1 text-[#1671a8] hover:bg-slate-100 dark:hover:bg-zinc-800"
+              title="Lisää karttataso"
+              aria-label="Lisää karttataso"
               onClick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
                 setActionMenu((current) => (current?.type === "layers" ? null : {
@@ -225,7 +228,7 @@ export default function LayerSwitcher() {
                 }));
               }}
             >
-              <MoreHorizontal size={18} />
+              <Plus size={18} />
             </button>
           </div>
           {openLayers && (
@@ -298,9 +301,8 @@ export default function LayerSwitcher() {
             actionMenu={actionMenu}
             actionMenuRef={actionMenuRef}
             onClose={() => setActionMenu(null)}
-            onSelectRole={(role) => {
-              crud.setNewSource({ ...crud.newSource, role });
-              crud.setAddOpen(true);
+            onSelectRoleAndType={(role, apiType) => {
+              crud.openAddModal(role, apiType);
               setActionMenu(null);
             }}
           />
@@ -309,6 +311,8 @@ export default function LayerSwitcher() {
       <AddLayerModal
         value={crud.newSource}
         open={crud.addOpen}
+        submitting={crud.addSubmitting}
+        error={crud.addError}
         onChange={crud.setNewSource}
         onClose={() => crud.setAddOpen(false)}
         onSubmit={() => void crud.addNewSource()}
@@ -334,6 +338,17 @@ export default function LayerSwitcher() {
           onClose={() => setMenu(null)}
           onHideLayer={hideLayer}
           onEditSource={() => void crud.editSource()}
+          onStartDrawing={(source) => {
+            const p = parseLayerParams(source.params);
+            const color = typeof p.strokeColor === "string" ? p.strokeColor : undefined;
+            const width = typeof p.strokeWidth === "number" ? p.strokeWidth : undefined;
+            useDrawLayerStore.getState().startDrawingLayer(source.id, color, width);
+            setMenu(null);
+          }}
+          onAdjustImage={(source) => {
+            useDrawLayerStore.getState().setAdjustingImageSourceId(source.id);
+            setMenu(null);
+          }}
           onToggleGroupsMenu={toggleGroupsMenuOpen}
           onSetLayerGroup={groupsDrag.setLayerGroup}
           onCreateGroup={groupsDrag.createGroup}

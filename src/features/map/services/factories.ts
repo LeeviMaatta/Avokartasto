@@ -12,10 +12,15 @@ import VectorSource from "ol/source/Vector";
 import GeoJSON from "ol/format/GeoJSON";
 import GPX from "ol/format/GPX";
 import KML from "ol/format/KML";
+import Style from "ol/style/Style";
+import Stroke from "ol/style/Stroke";
+import Fill from "ol/style/Fill";
+import CircleStyle from "ol/style/Circle";
 import { tileUrl, remoteTileUrl } from "../../../infrastructure/tauri";
 import type { MapSource, SourceFactory, SourceLayerOptions } from "../model/sourceTypes";
 import { resolveSourceUrl } from "./resolveUrl";
 import { buildCopernicusWmsParams, isCopernicusSource } from "./copernicusParams";
+import { createWmtsLayer } from "./wmtsSource";
 
 const paramsOf = (source: MapSource): Record<string, unknown> => {
   try {
@@ -95,7 +100,8 @@ const wms: SourceFactory = (source, settings, options) => {
   return layer;
 };
 
-const wmts: SourceFactory = (source, settings, options) => xyz(source, settings, options);
+const wmts: SourceFactory = (source, settings, options) =>
+  createWmtsLayer(source, rasterUrl(source, settings), cacheSizeOf(settings, options), options);
 
 const localTile: SourceFactory = (source, settings, options) => new TileLayer({
   preload: 1,
@@ -137,20 +143,69 @@ const img: SourceFactory = (source, settings) => {
   const extent = Array.isArray(params.extent) && params.extent.length === 4
     ? params.extent.map(Number) as [number, number, number, number]
     : [-20037508, -20037508, 20037508, 20037508];
+  const imgUrl = typeof params.dataUrl === "string" && params.dataUrl
+    ? params.dataUrl
+    : remoteUrl(source, settings);
   return new ImageLayer({
     source: new ImageStatic({
-      url: remoteUrl(source, settings),
+      url: imgUrl,
       imageExtent: extent,
       projection: source.projection || "EPSG:3857",
     }),
   });
 };
 
-const featureFactory = (format: GeoJSON | GPX | KML): SourceFactory => (source, settings) => {
-  const url = remoteUrl(source, settings) || source.base_path;
-  return new VectorLayer({
-    source: new VectorSource({ format, url }),
+const vectorStyleFor = (defaultColor: string, defaultWidth: number) => (feature: { get: (k: string) => unknown }) => {
+  const color = typeof feature.get("color") === "string" ? String(feature.get("color")) : defaultColor;
+  const width = typeof feature.get("width") === "number" ? Number(feature.get("width")) : defaultWidth;
+  return new Style({
+    stroke: new Stroke({ color, width }),
+    fill: new Fill({ color: `${color}33` }),
+    image: new CircleStyle({
+      radius: Math.max(4, width + 2),
+      fill: new Fill({ color }),
+      stroke: new Stroke({ color: "#ffffff", width: 1.5 }),
+    }),
   });
+};
+
+const featureFactory = (format: GeoJSON | GPX | KML): SourceFactory => (source, settings) => {
+  const params = paramsOf(source);
+  const inlineData = typeof params.inlineData === "string" ? params.inlineData : "";
+  const url = remoteUrl(source, settings) || source.base_path;
+  const vectorSource = inlineData
+    ? new VectorSource({
+        features: format.readFeatures(inlineData, {
+          dataProjection: "EPSG:4326",
+          featureProjection: "EPSG:3857",
+        }),
+      })
+    : new VectorSource({ format, url });
+  const color = typeof params.strokeColor === "string" ? params.strokeColor : "#2563eb";
+  const width = typeof params.strokeWidth === "number" ? params.strokeWidth : 2.5;
+  return new VectorLayer({
+    source: vectorSource,
+    style: vectorStyleFor(color, width),
+  });
+};
+
+const draw: SourceFactory = (source) => {
+  const params = paramsOf(source);
+  const rawGeoJson = typeof params.featuresGeoJson === "string" ? params.featuresGeoJson : "";
+  const features = rawGeoJson
+    ? new GeoJSON().readFeatures(rawGeoJson, {
+        dataProjection: "EPSG:4326",
+        featureProjection: "EPSG:3857",
+      })
+    : [];
+  const defaultColor = typeof params.strokeColor === "string" ? params.strokeColor : "#2563eb";
+  const defaultWidth = typeof params.strokeWidth === "number" ? params.strokeWidth : 3;
+  const layer = new VectorLayer({
+    source: new VectorSource({ features }),
+    style: vectorStyleFor(defaultColor, defaultWidth),
+  });
+  layer.set("drawSourceId", source.id);
+  return layer;
 };
 
 export const sourceFactories: Record<string, SourceFactory> = {
@@ -164,5 +219,6 @@ export const sourceFactories: Record<string, SourceFactory> = {
   kml: featureFactory(new KML()),
   wfs,
   img,
+  draw,
   shapefile: featureFactory(new GeoJSON()),
 };

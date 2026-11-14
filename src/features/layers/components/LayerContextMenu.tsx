@@ -1,5 +1,6 @@
 import type { RefObject } from "react";
-import { Check, ChevronDown, ChevronRight, Copy, EyeOff, Folder, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Copy, EyeOff, Folder, Move, Pencil, PenTool, Plus, RotateCcw, Trash2 } from "lucide-react";
+import type { LocalSource } from "../../../infrastructure/tauri";
 import { handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
 import type { LayerGroup } from "../model/layerListTypes";
 import type { LayerContextMenuState } from "../hooks/useLayerCrud";
@@ -15,6 +16,8 @@ interface LayerContextMenuProps {
   onClose: () => void;
   onHideLayer: (id: string, role: "basemap" | "overlay") => void;
   onEditSource: () => void;
+  onStartDrawing?: (source: LocalSource) => void;
+  onAdjustImage?: (source: LocalSource) => void;
   onToggleGroupsMenu: () => void;
   onSetLayerGroup: (layerId: string, groupId: string | null) => void;
   onCreateGroup: (name: string, assignLayerId?: string, role?: "basemap" | "overlay") => void;
@@ -36,6 +39,8 @@ export function LayerContextMenu({
   onClose,
   onHideLayer,
   onEditSource,
+  onStartDrawing,
+  onAdjustImage,
   onToggleGroupsMenu,
   onSetLayerGroup,
   onCreateGroup,
@@ -80,6 +85,28 @@ export function LayerContextMenu({
           <Pencil size={14} className="text-slate-400 shrink-0" />
           <span>Muokkaa</span>
         </button>
+
+        {menu.source?.api_type === "draw" && onStartDrawing && (
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[#1671a8] hover:bg-slate-100 dark:text-sky-400 dark:hover:bg-zinc-800/70 transition"
+            onClick={() => onStartDrawing(menu.source!)}
+          >
+            <PenTool size={14} className="shrink-0" />
+            <span>Piirrä tasolle</span>
+          </button>
+        )}
+
+        {menu.source?.api_type === "img" && onAdjustImage && (
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[#1671a8] hover:bg-slate-100 dark:text-sky-400 dark:hover:bg-zinc-800/70 transition"
+            onClick={() => onAdjustImage(menu.source!)}
+          >
+            <Move size={14} className="shrink-0" />
+            <span>Säädä kuvan sijaintia</span>
+          </button>
+        )}
 
         {/* Ryhmät alavalikko */}
         <div className="border-t border-slate-100 dark:border-zinc-800/80 my-0.5">

@@ -9,7 +9,8 @@ export type ApiType =
   | "gpx"
   | "kml"
   | "shapefile"
-  | "img";
+  | "img"
+  | "draw";
 
 export type SourceRole = "basemap" | "overlay";
 export type SourceKind = "raster" | "vector" | "features";
@@ -53,4 +54,5 @@ export const SOURCE_KINDS: Record<ApiType, SourceKind> = {
   kml: "features",
   shapefile: "features",
   img: "raster",
+  draw: "features",
 };

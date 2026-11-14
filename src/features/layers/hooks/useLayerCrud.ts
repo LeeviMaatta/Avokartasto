@@ -2,7 +2,16 @@ import { useState } from "react";
 import { useMapStore } from "../../../store/mapStore";
 import { addSourceConfig, deleteSource, resetSourceToDefault, updateSourceConfig, type LocalSource } from "../../../infrastructure/tauri";
 import { requestConfirmation } from "../../../app/confirmation";
-import type { NewLayerSource } from "../components/AddLayerModal";
+import type { ApiType, SourceRole } from "../../../shared/types/sourceTypes";
+import { useDrawLayerStore } from "../model/drawLayerStore";
+import { loadImageUrlForLayer } from "../services/imageLayerLoader";
+import {
+  createDefaultNewLayerSource,
+  getLayerTypeConfig,
+  isNewLayerValid,
+  parseLayerParams,
+  type NewLayerSource,
+} from "../model/layerTypeConfig";
 import type { LayerViewDraft } from "../model/layerViewTypes";
 
 export interface LayerContextMenuState {
@@ -40,44 +49,83 @@ export function useLayerCrud({
   const [editDraft, setEditDraft] = useState<LocalSource | null>(null);
   const [viewDraft, setViewDraft] = useState<LayerViewDraft>({ zoomOffset: 0, magnification: 1 });
   const [addOpen, setAddOpen] = useState(false);
-  const [newSource, setNewSource] = useState<NewLayerSource>({
-    name: "",
-    base_path: "",
-    pattern: "{z}/{x}/{y}.png",
-    role: "overlay",
-    api_type: "local_tile",
-    tile_size: 256,
-    max_zoom: 19,
-    layer_name: "",
-    style: "",
-    attribution: "",
-  });
+  const [addSubmitting, setAddSubmitting] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [newSource, setNewSource] = useState<NewLayerSource>(() => createDefaultNewLayerSource("overlay", "xyz"));
+
+  const openAddModal = (role: SourceRole, apiType: ApiType) => {
+    setNewSource(createDefaultNewLayerSource(role, apiType));
+    setAddError(null);
+    setAddOpen(true);
+  };
 
   const addNewSource = async () => {
-    if (!newSource.base_path.trim()) return;
-    await addSourceConfig({
-      name: newSource.name.trim() || "Uusi karttataso",
-      base_path: newSource.base_path.trim(),
-      pattern: newSource.pattern.trim() || "{z}/{x}/{y}.png",
-      projection: "EPSG:3857",
-      role: newSource.role,
-      opacity: 1,
-      min_zoom: 0,
-      max_zoom: Math.max(0, Math.min(24, Math.round(newSource.max_zoom))),
-      attribution: newSource.attribution.trim(),
-      api_type: newSource.api_type,
-      tile_size: Math.max(64, Math.min(2048, Math.round(newSource.tile_size))),
-      layer_name: newSource.layer_name.trim(),
-      style: newSource.style.trim(),
-      url: newSource.base_path.trim(),
-      params: "{}",
-      auth: "",
-      note: "",
-      view_zoom_offset: 0,
-      view_magnification: 1,
-    });
-    await refreshSources();
-    setAddOpen(false);
+    if (!isNewLayerValid(newSource) || addSubmitting) return;
+    setAddError(null);
+    setAddSubmitting(true);
+    try {
+      const isLocal = newSource.api_type === "local_tile";
+      const parsedParams = parseLayerParams(newSource.params);
+      const rawUrl = newSource.url.trim();
+      const isHttp = /^https?:\/\//i.test(rawUrl);
+
+      if (newSource.api_type === "img" && isHttp && typeof parsedParams.dataUrl !== "string") {
+        const viewExt = useDrawLayerStore.getState().currentViewExtent3857;
+        const requestedPage = typeof parsedParams.pdfPage === "number" ? parsedParams.pdfPage : 1;
+        const loaded = await loadImageUrlForLayer(rawUrl, viewExt, requestedPage);
+        parsedParams.dataUrl = loaded.dataUrl;
+        parsedParams.imageWidth = loaded.width;
+        parsedParams.imageHeight = loaded.height;
+        if (loaded.pageNumber) parsedParams.pdfPage = loaded.pageNumber;
+        if (loaded.pageCount) parsedParams.pdfPageCount = loaded.pageCount;
+        if (!Array.isArray(parsedParams.extent)) {
+          parsedParams.extent = loaded.extent;
+        }
+      } else if (newSource.api_type === "img" && !Array.isArray(parsedParams.extent)) {
+        parsedParams.extent = useDrawLayerStore.getState().currentViewExtent3857;
+      }
+
+      const defaultLabel = getLayerTypeConfig(newSource.api_type, newSource.role).label;
+      const newId = await addSourceConfig({
+        name: newSource.name.trim() || defaultLabel,
+        base_path: isLocal ? newSource.base_path.trim() : isHttp ? "" : rawUrl,
+        pattern: newSource.pattern.trim() || "{z}/{x}/{y}.png",
+        projection: "EPSG:3857",
+        role: newSource.role,
+        opacity: Math.min(1, Math.max(0, newSource.opacity)),
+        min_zoom: 0,
+        max_zoom: Math.max(0, Math.min(24, Math.round(newSource.max_zoom))),
+        attribution: newSource.attribution.trim(),
+        api_type: newSource.api_type,
+        tile_size: Math.max(64, Math.min(2048, Math.round(newSource.tile_size))),
+        layer_name: newSource.layer_name.trim(),
+        style: newSource.style.trim(),
+        url: isLocal ? "" : isHttp ? rawUrl : "",
+        params: JSON.stringify(parsedParams),
+        auth: "",
+        note: "",
+        view_zoom_offset: 0,
+        view_magnification: 1,
+      });
+
+      await refreshSources();
+      const layerId = `src:${newId}`;
+      if (newSource.role === "basemap") {
+        setBasemap(layerId);
+      } else if (!overlays.includes(layerId)) {
+        toggleOverlay(layerId);
+      }
+      if (newSource.api_type === "draw") {
+        const color = typeof parsedParams.strokeColor === "string" ? parsedParams.strokeColor : "#2563eb";
+        const width = typeof parsedParams.strokeWidth === "number" ? parsedParams.strokeWidth : 3;
+        useDrawLayerStore.getState().startDrawingLayer(newId, color, width);
+      }
+      setAddOpen(false);
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : "Karttatason lisääminen epäonnistui.");
+    } finally {
+      setAddSubmitting(false);
+    }
   };
 
   const editSource = async () => {
@@ -198,6 +246,9 @@ export function useLayerCrud({
     setViewDraft,
     addOpen,
     setAddOpen,
+    addSubmitting,
+    addError,
+    openAddModal,
     newSource,
     setNewSource,
     addNewSource,

@@ -2,7 +2,7 @@ use rusqlite::OptionalExtension;
 use tauri::State;
 
 use super::cache::invalidate_source_meta_cache;
-use super::validation::{source_kind, validate_source, LocalSource, SourceInput};
+use super::validation::{is_valid_http_url, source_kind, validate_source, LocalSource, SourceInput};
 use crate::{e, Db, Res};
 
 #[tauri::command]
@@ -196,4 +196,26 @@ pub fn reset_source_to_default(db: State<Db>, id: i64) -> Res<()> {
     drop(c);
     invalidate_source_meta_cache();
     Ok(())
+}
+
+#[tauri::command]
+pub async fn fetch_remote_asset(url: String) -> Res<Vec<u8>> {
+    if !is_valid_http_url(&url) {
+        return Err("Osoitteen on alettava http:// tai https://".into());
+    }
+    let target = url.trim().to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .user_agent("Avokartasto/1.0 (+https://fi.avokartasto.desktop)")
+            .build()
+            .map_err(e)?;
+        let response = client.get(&target).send().map_err(e)?;
+        if !response.status().is_success() {
+            return Err(format!("Palvelin palautti HTTP {}", response.status()));
+        }
+        response.bytes().map(|b| b.to_vec()).map_err(e)
+    })
+    .await
+    .map_err(e)?
 }

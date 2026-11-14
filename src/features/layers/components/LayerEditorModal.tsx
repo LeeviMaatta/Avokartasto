@@ -1,7 +1,10 @@
 import { useEffect, useRef } from "react";
 import type { LocalSource } from "../../../infrastructure/tauri";
 import type { LayerViewDraft } from "../model/layerViewTypes";
+import { getLayerTypeConfig, parseLayerParams } from "../model/layerTypeConfig";
+import { useDrawLayerStore } from "../model/drawLayerStore";
 import { focusFirstNavigable, focusMapViewport, handleContainerArrowKeyDown } from "../../../shared/keyboardNavigation";
+import { LayerTypeFields } from "./LayerTypeFields";
 
 interface LayerEditorModalProps {
   editDraft: LocalSource | null;
@@ -45,9 +48,14 @@ export default function LayerEditorModal({
   if (!editDraft) return null;
 
   const isDefault = Boolean(editDraft.is_default);
+  const config = getLayerTypeConfig(editDraft.api_type, editDraft.role);
+  const parsedParams = parseLayerParams(editDraft.params);
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs" onMouseDown={(event) => event.target === event.currentTarget && handleClose()}>
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs"
+      onMouseDown={(event) => event.target === event.currentTarget && handleClose()}
+    >
       <div
         ref={dialogRef}
         role="dialog"
@@ -56,63 +64,117 @@ export default function LayerEditorModal({
         onKeyDown={(e) => handleContainerArrowKeyDown(e, { onEscape: handleClose })}
       >
         <div className="overflow-x-hidden overflow-y-auto p-4 sm:p-5">
-        <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3 dark:border-zinc-800">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-lg font-semibold text-[#164b73] dark:text-sky-400">Muokkaa karttatasoa</span>
-              {isDefault ? (
+          <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3 dark:border-zinc-800">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-semibold text-[#164b73] dark:text-sky-400">Muokkaa karttatasoa</span>
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-zinc-800 dark:text-zinc-300">
-                  Oletustaso
+                  {isDefault ? "Oletustaso" : "Tuotu taso"}
                 </span>
-              ) : (
-                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:bg-blue-950/60 dark:text-blue-300">
-                  Tuotu taso
-                </span>
-              )}
+              </div>
+              <div className="text-xs text-slate-500 dark:text-zinc-400">
+                {isDefault ? "Sisäänrakennettu oletuskarttataso." : "Käyttäjän lisäämä tai tiedostosta tuotu karttataso."}
+              </div>
             </div>
-            <div className="text-xs text-slate-500 dark:text-zinc-400">
-              {isDefault
-                ? "Sisäänrakennettu oletuskarttataso."
-                : "Käyttäjän lisäämä tai tiedostosta tuotu karttataso."}
-            </div>
+            <button
+              type="button"
+              className="rounded p-1 text-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-zinc-800 dark:hover:text-white"
+              onClick={handleClose}
+              title="Sulje (Esc)"
+            >
+              ×
+            </button>
           </div>
-          <button className="rounded p-1 text-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-zinc-800 dark:hover:text-white" onClick={onClose} title="Sulje (Esc)">×</button>
-        </div>
-        <div className="grid gap-3">
-          <>
-            <label>Karttatason nimi<input className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.name} onChange={(e) => onEditDraftChange({ ...editDraft, name: e.target.value })} /></label>
-            <label>{editDraft.api_type === "local_tile" ? "Kansio tai MBTiles-tiedosto" : "Osoite (URL)"}<input className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.api_type === "local_tile" ? editDraft.base_path : editDraft.url} placeholder={editDraft.api_type === "local_tile" ? "esim. C:\\kartat\\tiilet" : "https://.../{z}/{x}/{y}.png"} onChange={(e) => onEditDraftChange(editDraft.api_type === "local_tile" ? { ...editDraft, base_path: e.target.value } : { ...editDraft, url: e.target.value })} /></label>
-            {editDraft.api_type === "local_tile" && (
-              <label>Laatan polku<input className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.pattern} onChange={(e) => onEditDraftChange({ ...editDraft, pattern: e.target.value })} /></label>
+
+          <div className="grid gap-3">
+            <LayerTypeFields
+              value={editDraft}
+              onChange={(patch) => onEditDraftChange({ ...editDraft, ...patch })}
+            />
+
+            {!config.showImageExtent && (
+              <label>
+                Läpinäkyvyys: {Math.round(editDraft.opacity * 100)}%
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  className="mt-2 w-full accent-[#1671a8]"
+                  value={editDraft.opacity}
+                  onChange={(e) => onEditDraftChange({ ...editDraft, opacity: Number(e.target.value) })}
+                />
+              </label>
             )}
-            <label>Rajapinnan tyyppi<select className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.api_type} onChange={(e) => onEditDraftChange({ ...editDraft, api_type: e.target.value as LocalSource["api_type"] })}><option value="local_tile">Local tile</option><option value="xyz">Tile Map API</option><option value="wmts">WMTS API</option><option value="wms">WMS API</option><option value="vector_tile">Vector tile</option><option value="geojson">GeoJSON</option><option value="gpx">GPX</option><option value="kml">KML</option><option value="wfs">WFS</option><option value="img">IMG / raster image</option></select></label>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label>Laatan koko<input type="number" min="64" max="2048" className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.tile_size} onChange={(e) => onEditDraftChange({ ...editDraft, tile_size: Number(e.target.value) })} /></label>
-              <label>Layer / taso<input className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.layer_name} onChange={(e) => onEditDraftChange({ ...editDraft, layer_name: e.target.value })} /></label>
-            </div>
-            <label>Tyyli<input className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.style} onChange={(e) => onEditDraftChange({ ...editDraft, style: e.target.value })} /></label>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label>Tason käyttö<select className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.role} onChange={(e) => onEditDraftChange({ ...editDraft, role: e.target.value as LocalSource["role"] })}><option value="basemap">Pohjakartta</option><option value="overlay">Päällys</option></select></label>
-              <label>Maksimizoom<input type="number" min="0" max="24" className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.max_zoom} onChange={(e) => onEditDraftChange({ ...editDraft, max_zoom: Number(e.target.value) })} /></label>
-            </div>
-            <label>Läpinäkyvyys: {Math.round(editDraft.opacity * 100)}%
-              <input type="range" min="0" max="1" step="0.05" className="mt-2 w-full accent-[#1671a8]" value={editDraft.opacity} onChange={(e) => onEditDraftChange({ ...editDraft, opacity: Number(e.target.value) })} />
-            </label>
-            <label>Tekijänoikeus / lähde<input className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={editDraft.attribution} onChange={(e) => onEditDraftChange({ ...editDraft, attribution: e.target.value })} /></label>
-          </>
-          <div className="border-t border-slate-200 pt-3 dark:border-zinc-800">
-            <div className="mb-2 font-semibold text-[#164b73] dark:text-sky-400">Zoomaus ja suurennus</div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label>Zoom offset<select className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={viewDraft.zoomOffset} onChange={(e) => onViewDraftChange({ ...viewDraft, zoomOffset: Number(e.target.value) })}>{[-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8].map((value) => <option key={value} value={value}>{value > 0 ? `+${value}` : value}</option>)}</select></label>
-              <label>Suurennus<select className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900" value={viewDraft.magnification} onChange={(e) => onViewDraftChange({ ...viewDraft, magnification: Number(e.target.value) })}><option value={1}>1x</option><option value={2}>2x</option><option value={4}>4x</option></select></label>
-            </div>
-            <div className="mt-1 text-[11px] text-slate-500 dark:text-zinc-400">Positiivinen offset siirtää aineiston alemmalta zoomilta ylemmälle karttazoomille.</div>
+
+            {editDraft.api_type === "draw" && (
+              <button
+                type="button"
+                className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-semibold text-[#1671a8] hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-sky-300"
+                onClick={() => {
+                  const color = typeof parsedParams.strokeColor === "string" ? parsedParams.strokeColor : undefined;
+                  const width = typeof parsedParams.strokeWidth === "number" ? parsedParams.strokeWidth : undefined;
+                  useDrawLayerStore.getState().startDrawingLayer(editDraft.id, color, width);
+                  handleClose();
+                }}
+              >
+                Muokkaa piirroksia kartalla
+              </button>
+            )}
+
+            {editDraft.api_type === "img" && (
+              <button
+                type="button"
+                className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-semibold text-[#1671a8] hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-sky-300"
+                onClick={() => {
+                  useDrawLayerStore.getState().setAdjustingImageSourceId(editDraft.id);
+                  handleClose();
+                }}
+              >
+                Säädä kuvan sijaintia kartalla
+              </button>
+            )}
+
+            {config.showZoomViewSettings && (
+              <div className="border-t border-slate-200 pt-3 dark:border-zinc-800">
+                <div className="mb-2 font-semibold text-[#164b73] dark:text-sky-400">Zoomaus ja suurennus</div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label>
+                    Zoom offset
+                    <select
+                      className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900"
+                      value={viewDraft.zoomOffset}
+                      onChange={(e) => onViewDraftChange({ ...viewDraft, zoomOffset: Number(e.target.value) })}
+                    >
+                      {[-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8].map((v) => (
+                        <option key={v} value={v}>{v > 0 ? `+${v}` : v}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Suurennus
+                    <select
+                      className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900"
+                      value={viewDraft.magnification}
+                      onChange={(e) => onViewDraftChange({ ...viewDraft, magnification: Number(e.target.value) })}
+                    >
+                      <option value={1}>1x</option>
+                      <option value={2}>2x</option>
+                      <option value={4}>4x</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="mt-1 text-[11px] text-slate-500 dark:text-zinc-400">
+                  Positiivinen offset siirtää aineiston alemmalta zoomilta ylemmälle karttazoomille.
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <button className="rounded border border-slate-300 px-4 py-2 dark:border-zinc-700" onClick={onClose}>Peruuta</button>
-          <button className="rounded bg-[#1671a8] px-4 py-2 font-medium text-white hover:bg-[#125d8c]" onClick={onSaveSource}>Tallenna</button>
-        </div>
+
+          <div className="mt-5 flex justify-end gap-2">
+            <button type="button" className="rounded border border-slate-300 px-4 py-2 dark:border-zinc-700" onClick={handleClose}>Peruuta</button>
+            <button type="button" className="rounded bg-[#1671a8] px-4 py-2 font-medium text-white hover:bg-[#125d8c]" onClick={onSaveSource}>Tallenna</button>
+          </div>
         </div>
       </div>
     </div>

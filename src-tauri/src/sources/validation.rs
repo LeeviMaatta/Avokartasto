@@ -57,7 +57,7 @@ pub struct SourceInput {
 pub fn source_kind(api_type: &str) -> &'static str {
     match api_type {
         "vector_tile" => "vector",
-        "wfs" | "geojson" | "gpx" | "kml" | "shapefile" => "features",
+        "wfs" | "geojson" | "gpx" | "kml" | "shapefile" | "draw" => "features",
         _ => "raster",
     }
 }
@@ -88,6 +88,7 @@ pub fn validate_source(source: &SourceInput) -> Res<()> {
             | "kml"
             | "shapefile"
             | "img"
+            | "draw"
     ) {
         return Err("Karttatason rajapintatyyppiä ei tueta".into());
     }

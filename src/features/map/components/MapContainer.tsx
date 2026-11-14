@@ -14,6 +14,9 @@ import { useOlMapInstance } from "../hooks/useOlMapInstance";
 import { useMapControlsSync } from "../hooks/useMapControlsSync";
 import { useMapNavigation } from "../hooks/useMapNavigation";
 import { useMapVectorInteractions, type ContextMenuTarget } from "../hooks/useMapVectorInteractions";
+import { useMapDrawLayer } from "../hooks/useMapDrawLayer";
+import { DrawLayerToolbar } from "../../layers/components/DrawLayerToolbar";
+import { useDrawLayerStore } from "../../layers/model/drawLayerStore";
 import FeatureContextMenu from "./FeatureContextMenu";
 import { MeasurementCursorOverlay } from "./MeasurementCursorBadge";
 import type { LiveMeasurementBadgeState } from "../../measurements/domain/liveMeasurementBadge";
@@ -53,6 +56,8 @@ export default function MapContainer() {
     .map((item) => item.savedId as number);
   const hiddenFeaturesSetting = useMapStore((s) => s.settings.hiddenFeatures);
   const showTileBoundaries = useDebugStore((s) => Boolean(s.settings.showTileBoundaries));
+  const activeDrawSourceId = useDrawLayerStore((s) => s.activeDrawSourceId);
+  const drawTool = useDrawLayerStore((s) => s.drawTool);
 
   const showCenterCrosshair = settings.showCenterCrosshair !== "0";
   const showLayerErrors = settings.showLayerErrors !== "0";
@@ -138,6 +143,8 @@ export default function MapContainer() {
     activeUnsavedMeasurementId,
   });
 
+  useMapDrawLayer(mapRef, sources);
+
   return (
     <div className="relative h-full w-full">
       <div
@@ -146,13 +153,14 @@ export default function MapContainer() {
         data-map-viewport="true"
         aria-label="Karttanäkymä"
         className="absolute inset-0 outline-none"
-        style={{ cursor: tool === "measure" ? "crosshair" : "default" }}
+        style={{ cursor: tool === "measure" || (activeDrawSourceId !== null && drawTool !== "modify") ? "crosshair" : "default" }}
       />
       <MeasurementCursorOverlay
         badgeUpdaterRef={liveBadgeUpdaterRef}
         viewportRef={el}
         opacity={overlayOpacity}
       />
+      <DrawLayerToolbar />
       {showCenterCrosshair && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center z-20" style={{ opacity: overlayOpacity }}>
           <div className="relative flex items-center justify-center">
