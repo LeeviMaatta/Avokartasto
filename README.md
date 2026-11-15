@@ -22,6 +22,8 @@ npm test                        # tyyppitarkistus (tsc) ja yksikkötestit (Vites
 - OpenWeatherMap: openweathermap.org/api
 - Copernicus Data Space: dataspace.copernicus.eu (WMS/WFS Instance ID)
 
+Lisää käyttöönotosta API_JA_GOOGLE_KARTTATASOT.md
+
 API-avaimet ja Lantmäteriet-tunnukset tallennetaan Windowsin suojattuun
 käyttöjärjestelmän tunnussäilöön, eivät sovelluksen SQLite-tietokantaan.
 
