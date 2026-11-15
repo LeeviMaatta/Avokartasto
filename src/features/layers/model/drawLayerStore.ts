@@ -10,6 +10,7 @@ interface DrawLayerState {
   strokeColor: string;
   strokeWidth: number;
   adjustingImageSourceId: number | null;
+  lockAspectRatio: boolean;
   currentViewExtent3857: [number, number, number, number];
   undoNonce: number;
 
@@ -20,6 +21,7 @@ interface DrawLayerState {
   setStrokeWidth: (width: number) => void;
   requestUndo: () => void;
   setAdjustingImageSourceId: (id: number | null) => void;
+  setLockAspectRatio: (lock: boolean) => void;
   setCurrentViewExtent3857: (extent: [number, number, number, number]) => void;
 }
 
@@ -29,6 +31,7 @@ export const useDrawLayerStore = create<DrawLayerState>((set) => ({
   strokeColor: "#2563eb",
   strokeWidth: 3,
   adjustingImageSourceId: null,
+  lockAspectRatio: false,
   currentViewExtent3857: DEFAULT_FINLAND_EXTENT_3857,
   undoNonce: 0,
 
@@ -49,5 +52,6 @@ export const useDrawLayerStore = create<DrawLayerState>((set) => ({
       adjustingImageSourceId,
       ...(adjustingImageSourceId !== null ? { activeDrawSourceId: null } : {}),
     }),
+  setLockAspectRatio: (lockAspectRatio) => set({ lockAspectRatio }),
   setCurrentViewExtent3857: (currentViewExtent3857) => set({ currentViewExtent3857 }),
 }));

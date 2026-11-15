@@ -88,7 +88,8 @@ async function renderPdfBytesToAsset(
   const pageNumber = Math.max(1, Math.min(pageCount, Math.round(requestedPage) || 1));
   const page = await pdf.getPage(pageNumber);
   const baseVp = page.getViewport({ scale: 1 });
-  const scale = Math.min(3, Math.max(1.5, 2200 / Math.max(baseVp.width, baseVp.height, 1)));
+  const maxDim = Math.max(baseVp.width, baseVp.height, 1);
+  const scale = Math.min(4.5, Math.max(2, 4096 / maxDim));
   const viewport = page.getViewport({ scale });
 
   const canvas = document.createElement("canvas");
@@ -156,6 +157,26 @@ export async function loadImageUrlForLayer(
     height,
     extent: computeAspectExtent(viewExtent3857, width, height),
   };
+}
+
+export async function loadRemotePdfBytes(url: string): Promise<Uint8Array> {
+  let bytes = pdfBytesCache.get(url);
+  if (!bytes) {
+    bytes = await fetchRemoteAssetBytes(url);
+    if (isPdfBytes(bytes)) {
+      if (pdfBytesCache.size >= 3) {
+        const oldest = pdfBytesCache.keys().next().value;
+        if (oldest) pdfBytesCache.delete(oldest);
+      }
+      pdfBytesCache.set(url, bytes);
+    }
+  }
+  return bytes;
+}
+
+export async function loadRemotePdfDocument(url: string): Promise<pdfjsLib.PDFDocumentProxy> {
+  const bytes = await loadRemotePdfBytes(url);
+  return pdfjsLib.getDocument({ data: bytes.slice() }).promise;
 }
 
 export async function loadVectorFileText(file: File): Promise<string> {

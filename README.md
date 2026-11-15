@@ -12,6 +12,7 @@ npm install
 npm run icons                   # luo src-tauri/icons tiedostosta app-icon.png
 npm run tauri dev               # kehitystila (ensimmäinen Rust-käännös kestää useita minuutteja)
 npm run tauri build             # asennuspaketti: src-tauri/target/release/bundle/
+npm test                        # tyyppitarkistus (tsc) ja yksikkötestit (Vitest)
 ```
 `npm run dev` käynnistää pelkän frontendin selaimessa (localhost:1420) – SQLite ja paikalliset kartat toimivat vain Taurissa.
 
@@ -29,7 +30,8 @@ käyttöjärjestelmän tunnussäilöön, eivät sovelluksen SQLite-tietokantaan.
 Frontend on jaettu ominaisuuksien ja integraatioiden mukaan:
 
 - `src/app` sisältää sovelluksen rungon, työkalupalkin, latausnäkymän ja yleiset dialogit.
-- `src/features/map` sisältää karttanäkymän, OpenLayers-integraation, paikkahaun ja kartan tyylit.
+- `src/features/map` sisältää karttanäkymän, OpenLayers-integraation ja kartan tyylit.
+- `src/features/search` sisältää paikkahaun (Nominatim) ja käänteisen geokoodauksen.
 - `src/features/layers` sisältää karttatasojen listan, ryhmittelyn ja editorit (oletuslähteet: `src-tauri/resources/default_maps.json`).
 - `src/features/markers` sisältää merkkikansiot, merkkipaneelin ja omien merkkien haun.
 - `src/features/measurements` sisältää mittausten muotoilun, GeoJSON-viennin ja korkeusprofiilin.
@@ -37,8 +39,7 @@ Frontend on jaettu ominaisuuksien ja integraatioiden mukaan:
 - `src/features/location-info` sisältää koordinaatti-, korkeus- ja säätiedot.
 - `src/features/settings` sisältää asetustyypit, lomakkeet ja oletusasetukset.
 - `src/features/debug` sisältää diagnostiikkanäkymän ja pyyntö-/tiiliseurannan.
-- `src/infrastructure/tauri` sisältää Tauri-, tile-, asetus- ja feature-rajapinnat.
-- `src/shared` sisältää ulkoisista ominaisuuksista riippumattomat yhteiset apurit.
-
-`src/infrastructure/tauriBridge.ts` säilyy toistaiseksi yhteensopivuusfasadina,
-jotta ominaisuudet voidaan siirtää pienempiin bridge-tiedostoihin vaiheittain.
+- `src/store` sisältää Zustand-tilanhallinnan (`mapStore.ts` ja `slices/`).
+- `src/infrastructure/tauri` sisältää Tauri-, tile-, lähde-, maasto-, Nominatim-, asetus- ja feature-rajapinnat.
+- `src/infrastructure/export` sisältää tiedostojen viennin (`exportFile.ts`).
+- `src/shared` sisältää ulkoisista ominaisuuksista riippumattomat yhteiset apurit, projektiot ja tyypit.

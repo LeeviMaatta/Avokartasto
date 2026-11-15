@@ -1,22 +1,17 @@
 import { useEffect, useRef, type RefObject } from "react";
 import type OlMap from "ol/Map";
 import type VectorLayer from "ol/layer/Vector";
-import OlVectorLayer from "ol/layer/Vector";
 import OlVectorSource from "ol/source/Vector";
 import Draw from "ol/interaction/Draw";
 import Modify from "ol/interaction/Modify";
-import Translate from "ol/interaction/Translate";
 import GeoJSON from "ol/format/GeoJSON";
 import Feature from "ol/Feature";
-import { fromExtent } from "ol/geom/Polygon";
-import Style from "ol/style/Style";
-import Stroke from "ol/style/Stroke";
-import Fill from "ol/style/Fill";
 import { updateSourceConfig, type LocalSource } from "../../../infrastructure/tauri";
 import { useMapStore } from "../../../store/mapStore";
 import { useDrawLayerStore } from "../../layers/model/drawLayerStore";
 import { parseLayerParams } from "../../layers/model/layerTypeConfig";
 import type { Extent3857 } from "../../layers/services/imageLayerLoader";
+import { useImageAdjustInteraction } from "./useImageAdjustInteraction";
 
 async function saveDrawLayerFeatures(source: LocalSource, vectorSource: OlVectorSource, color: string, width: number) {
   const params = parseLayerParams(source.params);
@@ -171,52 +166,5 @@ export function useMapDrawLayer(mapRef: RefObject<OlMap | null>, sources: LocalS
     void saveDrawLayerFeatures(sourceObj, vectorSource, strokeColorRef.current, strokeWidthRef.current);
   }, [undoNonce, activeDrawSourceId]);
 
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || adjustingImageSourceId === null) return;
-    const sourceObj = sources.find((s) => s.id === adjustingImageSourceId);
-    if (!sourceObj) return;
-
-    const params = parseLayerParams(sourceObj.params);
-    const rawExt = Array.isArray(params.extent) && params.extent.length === 4
-      ? (params.extent.map(Number) as Extent3857)
-      : useDrawLayerStore.getState().currentViewExtent3857;
-
-    const boxFeature: Feature = new Feature({ geometry: fromExtent(rawExt) });
-    const helperSource = new OlVectorSource<Feature>({ features: [boxFeature] });
-    const helperLayer = new OlVectorLayer({
-      source: helperSource,
-      zIndex: 95,
-      style: new Style({
-        stroke: new Stroke({ color: "#1671a8", width: 2.5, lineDash: [6, 4] }),
-        fill: new Fill({ color: "rgba(22, 113, 168, 0.08)" }),
-      }),
-    });
-
-    const modify = new Modify({ source: helperSource });
-    const translate = new Translate({ layers: [helperLayer] });
-
-    const persistExtent = () => {
-      const nextExtent = boxFeature.getGeometry()?.getExtent();
-      if (!nextExtent || nextExtent.length !== 4) return;
-      void updateSourceConfig(sourceObj.id, {
-        ...sourceObj,
-        params: JSON.stringify({ ...params, extent: Array.from(nextExtent) }),
-      }).then(() => useMapStore.getState().reloadSources());
-    };
-
-    modify.on("modifyend", persistExtent);
-    translate.on("translateend", persistExtent);
-    map.addLayer(helperLayer);
-    map.addInteraction(modify);
-    map.addInteraction(translate);
-
-    return () => {
-      modify.un("modifyend", persistExtent);
-      translate.un("translateend", persistExtent);
-      map.removeInteraction(modify);
-      map.removeInteraction(translate);
-      map.removeLayer(helperLayer);
-    };
-  }, [mapRef, adjustingImageSourceId, sources]);
+  useImageAdjustInteraction(mapRef, adjustingImageSourceId, sources);
 }

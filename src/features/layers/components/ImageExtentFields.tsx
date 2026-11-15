@@ -2,6 +2,7 @@ import { fromLonLat, toLonLat } from "ol/proj";
 import { useDrawLayerStore } from "../model/drawLayerStore";
 import { parseLayerParams } from "../model/layerTypeConfig";
 import { computeAspectExtent, type Extent3857 } from "../services/imageLayerLoader";
+import { scaleExtent } from "../../map/services/imageTransform";
 
 interface ImageExtentFieldsProps {
   params: string;
@@ -27,6 +28,7 @@ export function ImageExtentFields({
   const currentViewExtent3857 = useDrawLayerStore((s) => s.currentViewExtent3857);
   const parsed = parseLayerParams(params);
   const extent3857 = readExtent3857(parsed, currentViewExtent3857);
+  const rotation = typeof parsed.rotation === "number" && Number.isFinite(parsed.rotation) ? parsed.rotation : 0;
 
   const [minLon, minLat] = toLonLat([extent3857[0], extent3857[1]]);
   const [maxLon, maxLat] = toLonLat([extent3857[2], extent3857[3]]);
@@ -44,6 +46,17 @@ export function ImageExtentFields({
     const w = typeof parsed.imageWidth === "number" ? parsed.imageWidth : 1000;
     const h = typeof parsed.imageHeight === "number" ? parsed.imageHeight : 1000;
     const nextExtent = computeAspectExtent(currentViewExtent3857, w, h);
+    onParamsChange(JSON.stringify({ ...parsed, extent: nextExtent }));
+  };
+
+  const updateRotation = (nextDeg: number) => {
+    if (!Number.isFinite(nextDeg)) return;
+    const clamped = Math.max(-180, Math.min(180, nextDeg));
+    onParamsChange(JSON.stringify({ ...parsed, rotation: clamped }));
+  };
+
+  const handleScale = (factor: number) => {
+    const nextExtent = scaleExtent(extent3857, factor);
     onParamsChange(JSON.stringify({ ...parsed, extent: nextExtent }));
   };
 
@@ -76,6 +89,60 @@ export function ImageExtentFields({
           Pohjoinen (maxLat)
           <input type="number" step="0.0001" className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900" value={Number(maxLat.toFixed(5))} onChange={(e) => updateLonLat(3, Number(e.target.value))} />
         </label>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <span className="text-xs">Koko:</span>
+        <button
+          type="button"
+          className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          onClick={() => handleScale(0.9)}
+        >
+          Pienennä (0.9x)
+        </button>
+        <button
+          type="button"
+          className="rounded border border-slate-300 px-2 py-0.5 text-xs hover:bg-slate-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          onClick={() => handleScale(1.1)}
+        >
+          Suurenna (1.1x)
+        </button>
+      </div>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-xs">
+          <span>Kierto: {Math.round(rotation * 100) / 100}°</span>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number"
+              min={-180}
+              max={180}
+              step="any"
+              className="w-16 rounded border border-slate-300 bg-transparent px-1.5 py-0.5 text-xs dark:border-zinc-700"
+              value={rotation}
+              onChange={(e) => {
+                if (e.target.value === "") return;
+                updateRotation(Number(e.target.value));
+              }}
+            />
+            {rotation !== 0 && (
+              <button
+                type="button"
+                className="rounded border border-slate-300 px-1.5 py-0.5 text-[11px] hover:bg-slate-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                onClick={() => updateRotation(0)}
+              >
+                0°
+              </button>
+            )}
+          </div>
+        </div>
+        <input
+          type="range"
+          min={-180}
+          max={180}
+          step={0.1}
+          className="w-full accent-[#1671a8]"
+          value={rotation}
+          onChange={(e) => updateRotation(Number(e.target.value))}
+        />
       </div>
       <label className="block text-xs">
         Läpinäkyvyys: {Math.round(opacity * 100)}%

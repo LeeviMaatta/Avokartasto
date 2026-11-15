@@ -21,6 +21,8 @@ import type { MapSource, SourceFactory, SourceLayerOptions } from "../model/sour
 import { resolveSourceUrl } from "./resolveUrl";
 import { buildCopernicusWmsParams, isCopernicusSource } from "./copernicusParams";
 import { createWmtsLayer } from "./wmtsSource";
+import { computeRotatedExtent, createRotatedImageDataUrl } from "./imageTransform";
+import { createDynamicPdfSource } from "./pdfDynamicSource";
 
 const paramsOf = (source: MapSource): Record<string, unknown> => {
   try {
@@ -140,17 +142,47 @@ const wfs: SourceFactory = (source, settings) => new VectorLayer({
 
 const img: SourceFactory = (source, settings) => {
   const params = paramsOf(source);
-  const extent = Array.isArray(params.extent) && params.extent.length === 4
+  const rawExtent = Array.isArray(params.extent) && params.extent.length === 4
     ? params.extent.map(Number) as [number, number, number, number]
-    : [-20037508, -20037508, 20037508, 20037508];
-  const imgUrl = typeof params.dataUrl === "string" && params.dataUrl
-    ? params.dataUrl
-    : remoteUrl(source, settings);
+    : [-20037508, -20037508, 20037508, 20037508] as [number, number, number, number];
+  const rotation = typeof params.rotation === "number" ? params.rotation : 0;
+  const extent = computeRotatedExtent(rawExtent, rotation);
+  const remote = remoteUrl(source, settings);
+  const dataUrl = typeof params.dataUrl === "string" && params.dataUrl ? params.dataUrl : "";
+  const isRemotePdf = Boolean(
+    remote && (remote.toLowerCase().split("?")[0].endsWith(".pdf") || typeof params.pdfPage === "number")
+  );
+  if (isRemotePdf) {
+    const pageNumber = typeof params.pdfPage === "number"
+      ? params.pdfPage
+      : typeof params.pageNumber === "number"
+        ? params.pageNumber
+        : 1;
+    return new ImageLayer({
+      source: createDynamicPdfSource(remote, pageNumber, rawExtent, rotation, dataUrl || undefined),
+    });
+  }
+  const imgUrl = dataUrl || remote;
   return new ImageLayer({
     source: new ImageStatic({
       url: imgUrl,
       imageExtent: extent,
       projection: source.projection || "EPSG:3857",
+      crossOrigin: "anonymous",
+      ...(rotation !== 0
+        ? {
+            imageLoadFunction: (imageWrapper, src) => {
+              const htmlImg = imageWrapper.getImage() as HTMLImageElement;
+              void createRotatedImageDataUrl(src, rotation)
+                .then((rotatedUrl) => {
+                  htmlImg.src = rotatedUrl;
+                })
+                .catch(() => {
+                  htmlImg.src = src;
+                });
+            },
+          }
+        : {}),
     }),
   });
 };
