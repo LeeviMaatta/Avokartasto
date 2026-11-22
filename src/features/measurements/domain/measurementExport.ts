@@ -1,16 +1,15 @@
-import { exportGeoJsonFile, type ExportResult } from "../../../shared/exportFile";
+import { exportGeoJsonFile, type ExportResult } from "../../../infrastructure/export/exportFile";
 import type { Measure } from "../../map/model/mapTypes";
 
 export type { ExportResult };
 
-export const exportMeasurement = async (measure: Measure, title?: string, description?: string): Promise<ExportResult> => {
+export const exportMeasurement = async (measure: Measure, title?: string): Promise<ExportResult> => {
   const geojsonContent = JSON.stringify(
     {
       type: "Feature",
       properties: {
         type: measure.kind,
         ...(title?.trim() ? { name: title.trim() } : {}),
-        ...(description?.trim() ? { description: description.trim() } : {}),
       },
       geometry: JSON.parse(measure.geojson),
     },

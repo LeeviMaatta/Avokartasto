@@ -1,24 +1,24 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useMapStore } from "../store/mapStore";
-import MapContainer from "../features/map/MapContainer";
-import LayerSwitcher from "../features/map/controls/LayerSwitcher";
-import SearchBar from "../features/map/controls/SearchBar";
-import CopernicusControls from "../features/map/controls/CopernicusControls";
-import MeasureTool from "../features/map/controls/MeasureTool";
-import RouteTool from "../features/routing/RouteTool";
-import InfoBox from "../features/map/overlays/InfoBox";
-import SettingsModal from "../features/settings/SettingsModal";
+import MapContainer from "../features/map/components/MapContainer";
+import LayerSwitcher from "../features/layers/components/LayerSwitcher";
+import SearchBar from "../features/search/components/SearchBar";
+import CopernicusControls from "../features/map/components/CopernicusControls";
+import MeasureTool from "../features/measurements/components/MeasureTool";
+import RouteTool from "../features/routing/components/RouteTool";
+import InfoBox from "../features/map/components/InfoBox";
+import SettingsModal from "../features/settings/components/SettingsModal";
 import ConfirmDialog from "./ConfirmDialog";
-import AppToolbar from "./appToolbar/AppToolbar";
-import DebugOverlay from "../features/debug/DebugOverlay";
-import { useDebugStore } from "../features/debug/debugStore";
+import AppToolbar from "./AppToolbar";
+import DebugOverlay from "../features/debug/components/DebugOverlay";
+import { useDebugStore } from "../features/debug/model/debugStore";
 import LoadingScreen from "./LoadingScreen";
 import { useGlobalKeyboardShortcuts } from "./useGlobalKeyboardShortcuts";
 import { focusMapViewport } from "../shared/keyboardNavigation";
 import { attachMapFocusRestoration } from "../shared/mapFocus";
 import type { UiStyle } from "../features/settings/model/settingTypes";
 
-const ElevationChart = lazy(() => import("../features/measurements/ElevationChart"));
+const ElevationChart = lazy(() => import("../features/measurements/components/ElevationChart"));
 
 export default function App() {
   useGlobalKeyboardShortcuts();

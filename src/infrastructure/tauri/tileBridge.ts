@@ -1,7 +1,3 @@
-import { inTauri } from "./runtime";
-
-export { inTauri };
-
 export const tileUrl = (id: number) =>
   navigator.userAgent.includes("Windows")
     ? `http://app-tile.localhost/${id}/{z}/{x}/{y}`

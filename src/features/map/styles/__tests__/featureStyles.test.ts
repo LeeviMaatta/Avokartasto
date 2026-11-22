@@ -3,7 +3,11 @@ import Feature from "ol/Feature";
 import LineString from "ol/geom/LineString";
 import { fromLonLat } from "ol/proj";
 import { getLength } from "ol/sphere";
-import { computeLogicalMeasurementSegments, measurementStyle } from "../featureStyles";
+import {
+  computeLogicalMeasurementSegments,
+  isSelectedMeasurementFeature,
+  measurementStyle,
+} from "../featureStyles";
 
 describe("featureStyles segment spacing and zoom visibility", () => {
   it("accumulates curved/angled segments along the true path when skipping intermediate points", () => {
@@ -64,5 +68,133 @@ describe("featureStyles segment spacing and zoom visibility", () => {
     });
     const stylesAlwaysAtZ11 = alwaysShownFn(feature, resZ11);
     expect(Array.isArray(stylesAlwaysAtZ11) ? stylesAlwaysAtZ11.length : 1).toBeGreaterThan(1);
+  });
+
+  it("renders segment distance labels only for the currently selected measurement", () => {
+    const a = fromLonLat([24.94, 60.17]) as [number, number];
+    const b = fromLonLat([24.95, 60.17]) as [number, number];
+    const resZ14 = 156543.03392804097 / 2 ** 14;
+
+    const unsaved1 = new Feature({ geometry: new LineString([a, b]), unsavedId: "unsaved-1" });
+    const unsaved2 = new Feature({ geometry: new LineString([a, b]), unsavedId: "unsaved-2" });
+    const saved5 = new Feature({ geometry: new LineString([a, b]), id: 5 });
+
+    const styleWithSelection = (editingId: number | null, activeUnsavedId: string | null) =>
+      measurementStyle({ saved: "#16a34a", unsaved: "#2563eb" }, true, "metric", {
+        minSegmentDistanceM: 500,
+        hideByZoom: true,
+        minZoomForSegments: 13,
+        isSelectedFeature: (f) => isSelectedMeasurementFeature(f, editingId, activeUnsavedId),
+      });
+
+    const whenUnsaved1Selected = styleWithSelection(null, "unsaved-1");
+    expect((whenUnsaved1Selected(unsaved1, resZ14) as unknown[]).length).toBeGreaterThan(1);
+    expect((whenUnsaved1Selected(unsaved2, resZ14) as unknown[]).length).toBe(1);
+    expect((whenUnsaved1Selected(saved5, resZ14) as unknown[]).length).toBe(1);
+
+    const whenSaved5Selected = styleWithSelection(5, null);
+    expect((whenSaved5Selected(saved5, resZ14) as unknown[]).length).toBeGreaterThan(1);
+    expect((whenSaved5Selected(unsaved1, resZ14) as unknown[]).length).toBe(1);
+
+    const whenNoneSelected = styleWithSelection(null, null);
+    expect((whenNoneSelected(unsaved1, resZ14) as unknown[]).length).toBe(1);
+    expect((whenNoneSelected(saved5, resZ14) as unknown[]).length).toBe(1);
+  });
+
+  it("shows a single total-distance label when segment labels are disabled or multiple measurements are selected", () => {
+    const base = fromLonLat([24.94, 60.17]) as [number, number];
+    const coords: [number, number][] = [
+      base,
+      [base[0] + 600, base[1]],
+      [base[0] + 1200, base[1]],
+      [base[0] + 1800, base[1]],
+    ];
+    const feature = new Feature({ geometry: new LineString(coords), unsavedId: "unsaved-1" });
+    const resZ11 = 156543.03392804097 / 2 ** 11;
+    const resZ14 = 156543.03392804097 / 2 ** 14;
+
+    const totalOnlyWhenSettingOff = measurementStyle("#2563eb", false, "metric", {
+      minSegmentDistanceM: 500,
+      hideByZoom: true,
+      minZoomForSegments: 13,
+      isSelectedFeature: (f) => isSelectedMeasurementFeature(f, null, "unsaved-1"),
+    });
+    const stylesOffAtZ11 = totalOnlyWhenSettingOff(feature, resZ11) as unknown[];
+    expect(stylesOffAtZ11).toHaveLength(1);
+    const stylesOffAtZ14 = totalOnlyWhenSettingOff(feature, resZ14) as unknown[];
+    expect(stylesOffAtZ14).toHaveLength(2);
+
+    const totalOnlyAlwaysVisible = measurementStyle("#2563eb", false, "metric", {
+      minSegmentDistanceM: 500,
+      hideByZoom: false,
+      minZoomForSegments: 13,
+      isSelectedFeature: (f) => isSelectedMeasurementFeature(f, null, "unsaved-1"),
+    });
+    expect(totalOnlyAlwaysVisible(feature, resZ11) as unknown[]).toHaveLength(2);
+
+    const totalOnlyWhenMultiSelected = measurementStyle("#2563eb", true, "metric", {
+      minSegmentDistanceM: 500,
+      hideByZoom: true,
+      minZoomForSegments: 13,
+      showTotalOnly: true,
+      isSelectedFeature: (f) =>
+        isSelectedMeasurementFeature(f, null, "unsaved-1", [
+          { savedId: null, unsavedId: "unsaved-1" },
+          { savedId: null, unsavedId: "unsaved-2" },
+        ]),
+    });
+    expect(totalOnlyWhenMultiSelected(feature, resZ11) as unknown[]).toHaveLength(1);
+    const multiStylesAtZ14 = totalOnlyWhenMultiSelected(feature, resZ14) as unknown[];
+    expect(multiStylesAtZ14).toHaveLength(2);
+  });
+
+  it("adapts distance badge styling to active theme and uiStyle", () => {
+    const base = fromLonLat([24.94, 60.17]) as [number, number];
+    const coords: [number, number][] = [base, [base[0] + 1000, base[1]]];
+    const feature = new Feature({ geometry: new LineString(coords), unsavedId: "unsaved-1" });
+    const resZ14 = 156543.03392804097 / 2 ** 14;
+
+    const retroDark = measurementStyle("#2563eb", false, "metric", {
+      hideByZoom: false,
+      theme: "dark",
+      uiStyle: "retro",
+      isSelectedFeature: (f) => isSelectedMeasurementFeature(f, null, "unsaved-1"),
+    })(feature, resZ14) as Array<{ getText?: () => { getBackgroundFill?: () => { getColor?: () => string }; getFont?: () => string } | null }>;
+
+    const badgeText = retroDark[1]?.getText?.();
+    expect(badgeText?.getBackgroundFill?.()?.getColor?.()).toBe("#2b2b2b");
+    expect(badgeText?.getFont?.()).toContain("MS Sans Serif");
+
+    const modernLight = measurementStyle("#2563eb", false, "metric", {
+      hideByZoom: false,
+      theme: "light",
+      uiStyle: "modern",
+      isSelectedFeature: (f) => isSelectedMeasurementFeature(f, null, "unsaved-1"),
+    })(feature, resZ14) as Array<{
+      getText?: () => { getBackgroundFill?: () => { getColor?: () => string } } | null;
+      getRenderer?: () => ((coords: number[], state: { context: CanvasRenderingContext2D; pixelRatio: number }) => void) | null;
+    }>;
+
+    expect(modernLight[1]?.getText?.()?.getBackgroundFill?.()?.getColor?.()).toBe("rgba(255, 255, 255, 0.95)");
+
+    const renderer = modernLight[1]?.getRenderer?.();
+    expect(typeof renderer).toBe("function");
+    const calls: string[] = [];
+    const mockCtx = {
+      save: () => calls.push("save"),
+      restore: () => calls.push("restore"),
+      translate: () => calls.push("translate"),
+      scale: () => calls.push("scale"),
+      beginPath: () => {},
+      roundRect: () => calls.push("roundRect"),
+      rect: () => calls.push("rect"),
+      fill: () => calls.push("fill"),
+      stroke: () => calls.push("stroke"),
+      measureText: () => ({ width: 48 }),
+      fillText: (txt: string) => calls.push(`fillText:${txt}`),
+    } as unknown as CanvasRenderingContext2D;
+    renderer?.([120, 240], { context: mockCtx, pixelRatio: 2 });
+    expect(calls).toContain("roundRect");
+    expect(calls.some((c) => c.startsWith("fillText:"))).toBe(true);
   });
 });

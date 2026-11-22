@@ -1,4 +1,4 @@
-import { listFeatures, type UserFeature } from "../../../infrastructure/tauriBridge";
+import { listFeatures, type UserFeature } from "../../../infrastructure/tauri";
 
 export interface MarkerSearchHit {
   id: number;

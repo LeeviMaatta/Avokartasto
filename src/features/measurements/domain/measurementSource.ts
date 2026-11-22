@@ -1,6 +1,10 @@
 import type Feature from "ol/Feature";
 import GeoJSON from "ol/format/GeoJSON";
+import LineString from "ol/geom/LineString";
+import Polygon from "ol/geom/Polygon";
+import { getArea, getLength } from "ol/sphere";
 import type VectorSource from "ol/source/Vector";
+import type { SelectedMeasurementItem } from "./measurementSelection";
 
 let unsavedSeq = 0;
 
@@ -36,6 +40,50 @@ export function findTargetMeasurementFeature(
   return null;
 }
 
+/** Finds all measurement features matching `selectedMeasurements`, or falls back to the single target feature. */
+export function findEditableMeasurementFeatures(
+  source: VectorSource,
+  editingFeatureId: number | null,
+  activeUnsavedMeasurementId: string | null,
+  selectedMeasurements: Array<{ savedId: number | null; unsavedId: string | null }>,
+): Feature[] {
+  if (selectedMeasurements.length > 0) {
+    const matched = source.getFeatures().filter((feat) => {
+      const savedId = feat.get("id");
+      const unsavedId = feat.get("unsavedId");
+      return selectedMeasurements.some((item) =>
+        item.savedId !== null
+          ? savedId !== undefined && savedId !== null && Number(savedId) === item.savedId
+          : item.unsavedId !== null && unsavedId === item.unsavedId,
+      );
+    });
+    if (matched.length > 0) return matched;
+  }
+  const single = findTargetMeasurementFeature(source, editingFeatureId, activeUnsavedMeasurementId);
+  return single ? [single] : [];
+}
+
+/** Builds an updated selection summary item by measuring an OpenLayers feature's current geometry. */
+export function buildSelectedMeasurementItem(feature: Feature): SelectedMeasurementItem | null {
+  const geom = feature.getGeometry();
+  if (!(geom instanceof LineString) && !(geom instanceof Polygon)) return null;
+  const kind = geom instanceof Polygon ? "area" : "distance";
+  const length =
+    geom instanceof Polygon
+      ? getArea(geom, { projection: "EPSG:3857" })
+      : getLength(geom, { projection: "EPSG:3857" });
+  const savedId = feature.get("id");
+  const isSaved = savedId !== undefined && savedId !== null;
+  const unsavedId = isSaved ? null : ensureUnsavedMeasurementId(feature);
+  return {
+    savedId: isSaved ? Number(savedId) : null,
+    unsavedId,
+    length,
+    kind,
+    title: isSaved ? String(feature.get("title") || "Mittaus") : undefined,
+  };
+}
+
 /** Removes only temporary edit clones of saved DB features (leaving unsaved measurements intact). */
 export function clearSavedEditFeatures(source: VectorSource, savedId?: number) {
   source.getFeatures().forEach((feat) => {
@@ -45,6 +93,21 @@ export function clearSavedEditFeatures(source: VectorSource, savedId?: number) {
       source.removeFeature(feat);
     }
   });
+}
+
+/** Returns all unsaved measurement features currently in `source` (excluding saved edit clones). */
+export function getUnsavedMeasurementFeatures(source: VectorSource): Feature[] {
+  return source.getFeatures().filter((feat) => {
+    const savedId = feat.get("id");
+    return savedId === undefined || savedId === null;
+  });
+}
+
+/** Removes all unsaved measurement features from `source`, preserving saved edit clones. */
+export function removeAllUnsavedMeasurements(source: VectorSource): number {
+  const unsaved = getUnsavedMeasurementFeatures(source);
+  unsaved.forEach((feat) => source.removeFeature(feat));
+  return unsaved.length;
 }
 
 /** Removes a single unsaved measurement matching `unsavedId`, preserving all other measurements. */

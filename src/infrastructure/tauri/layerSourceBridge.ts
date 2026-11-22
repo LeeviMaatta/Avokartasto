@@ -1,5 +1,5 @@
-import { invokeTauri } from "./runtime";
-import type { MapSource } from "../../features/map/sources/model/sourceTypes";
+import { inTauri, invokeTauri } from "./runtime";
+import type { MapSource } from "../../shared/types/sourceTypes";
 
 export type LocalSource = MapSource;
 
@@ -25,3 +25,13 @@ export const updateSourceConfig = (id: number, source: SourceInput) =>
 
 export const resetSourceToDefault = (id: number) =>
   invokeTauri<void>("reset_source_to_default", { id });
+
+export const fetchRemoteAssetBytes = async (url: string): Promise<Uint8Array> => {
+  if (inTauri()) {
+    const bytes = await invokeTauri<number[]>("fetch_remote_asset", { url });
+    return new Uint8Array(bytes);
+  }
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
+};
