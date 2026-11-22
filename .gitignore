@@ -26,3 +26,7 @@ src-tauri/gen
 .DS_Store
 Thumbs.db
 desktop.ini
+
+*.md
+!README.md
+!API_JA_GOOGLE_KARTTATASOT.md
