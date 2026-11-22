@@ -1,11 +1,11 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type OlMap from "ol/Map";
 import TileLayer from "ol/layer/Tile";
 import VectorTileLayer from "ol/layer/VectorTile";
 import { buildLayer, sourceId } from "../../layers/domain/layerBuilder";
 import type { LocalSource } from "../../../infrastructure/tauri";
 import { recordDebugEvent, recordTileEvent, recordTileStart } from "../../debug/services/debugMonitor";
-import { APP_LAYER_TYPE } from "./layerSyncShared";
+import { APP_LAYER_TYPE, sourceSignature } from "./layerSyncShared";
 
 export function useBasemapLayer(
   mapRef: RefObject<OlMap | null>,
@@ -15,18 +15,39 @@ export function useBasemapLayer(
   sources: LocalSource[],
 ) {
   const [baseLayerError, setBaseLayerError] = useState<string | null>(null);
+  const sourcesRef = useRef(sources);
+  sourcesRef.current = sources;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  const hasSources = sources.length > 0;
+  const numericId = sourceId(basemap);
+  const selectedSource = numericId !== null ? sources.find((item) => item.id === numericId) : undefined;
+  const basemapSignature = selectedSource
+    ? sourceSignature(selectedSource, layerSettingsKey)
+    : JSON.stringify([basemap, layerSettingsKey, numericId !== null ? "missing" : "builtin"]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || sources.length === 0) return;
+    if (!map || selectedSource?.opacity === undefined) return;
+    map.getLayers().getArray()
+      .filter((item) => item.get(APP_LAYER_TYPE) === "basemap")
+      .forEach((item) => item.setOpacity(selectedSource.opacity));
+  }, [mapRef, selectedSource?.opacity]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const currentSources = sourcesRef.current;
+    const currentSettings = settingsRef.current;
+    if (!map || !hasSources) return;
     setBaseLayerError(null);
-    const layer = buildLayer(basemap, settings, sources, false);
+    const layer = buildLayer(basemap, currentSettings, currentSources, false);
     const previousLayers = map.getLayers().getArray().filter(
       (item) => item.get(APP_LAYER_TYPE) === "basemap",
     );
     if (!layer) {
-      const numericId = sourceId(basemap);
-      const selected = numericId !== null ? sources.find((item) => item.id === numericId) : undefined;
+      const id = sourceId(basemap);
+      const selected = id !== null ? currentSources.find((item) => item.id === id) : undefined;
       if (selected && !selected.url.trim() && !selected.base_path.trim()) {
         setBaseLayerError("Karttatasolta puuttuu lähdeosoite. Lisää URL-osoite tason muokkauksesta.");
       } else {
@@ -108,7 +129,7 @@ export function useBasemapLayer(
       source.un("tileloaderror", onError);
       map.removeLayer(layer);
     };
-  }, [mapRef, basemap, layerSettingsKey, sources]);
+  }, [mapRef, basemap, basemapSignature, hasSources]);
 
   return { baseLayerError };
 }

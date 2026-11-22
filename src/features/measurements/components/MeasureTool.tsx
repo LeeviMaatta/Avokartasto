@@ -280,7 +280,19 @@ export default function MeasureTool() {
               Nousu: <b>{Math.round(measurement.terrainStats.originalClimbM)} m → {Math.round(measurement.terrainStats.routedClimbM)} m</b>
             </span>
           )}
-          <input className="w-28 sm:w-36 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" placeholder="Mittauksen nimi" aria-label="Mittauksen nimi" value={measurement.title} onChange={(e) => measurement.setTitle(e.target.value)} />
+          <input
+            className="w-28 sm:w-36 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            placeholder="Mittauksen nimi"
+            aria-label="Mittauksen nimi"
+            value={measurement.title}
+            onChange={(e) => measurement.setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing && !measurement.savingMeasurement) {
+                e.preventDefault();
+                void measurement.saveMeasurement();
+              }
+            }}
+          />
           <button disabled={measurement.savingMeasurement} className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white shadow hover:bg-blue-700 disabled:opacity-60 transition" onClick={() => void measurement.saveMeasurement()}>
             <Save size={13} /> {editingFeatureId ? "Tallenna muutokset" : "Tallenna"}
           </button>

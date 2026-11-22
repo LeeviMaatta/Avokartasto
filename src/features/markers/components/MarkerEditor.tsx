@@ -57,6 +57,12 @@ export default function MarkerEditor({
         aria-label="Merkin nimi" 
         value={draft.title} 
         onChange={(event) => onChange({ ...draft, title: event.target.value })} 
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.nativeEvent.isComposing && !busy) {
+            event.preventDefault();
+            onSave();
+          }
+        }}
       />
 
       <input 
