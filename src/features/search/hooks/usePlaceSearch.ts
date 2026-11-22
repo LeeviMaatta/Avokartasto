@@ -1,22 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { searchNominatim, type NominatimSearchHit } from "../services/nominatimService";
 import { searchSavedMarkers, type MarkerSearchHit } from "../../markers/domain/markerSearch";
+import { parseCoordinateQuery, type CoordinateSearchHit } from "../domain/coordinateParser";
 
 const SEARCH_TIMEOUT_MS = 10_000;
 
 export function usePlaceSearch() {
   const [query, setQuery] = useState("");
+  const [coordinateResult, setCoordinateResult] = useState<CoordinateSearchHit | null>(null);
   const [results, setResults] = useState<NominatimSearchHit[]>([]);
   const [markerResults, setMarkerResults] = useState<MarkerSearchHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const searchController = useRef<AbortController | null>(null);
+  const skipNextEffectRef = useRef(false);
 
   const clearResults = useCallback(() => {
+    setCoordinateResult(null);
     setResults([]);
     setMarkerResults([]);
     setError(null);
   }, []);
+
+  const applySelection = useCallback((text: string) => {
+    skipNextEffectRef.current = true;
+    setQuery(text);
+    clearResults();
+  }, [clearResults]);
 
   const resetSearch = useCallback(() => {
     setQuery("");
@@ -27,12 +37,24 @@ export function usePlaceSearch() {
     const text = (targetQuery !== undefined ? targetQuery : query).trim();
     if (!text) return;
 
+    const coordHit = parseCoordinateQuery(text);
+    setCoordinateResult(coordHit);
+
     let foundMarkers: MarkerSearchHit[] = [];
     try {
       foundMarkers = await searchSavedMarkers(text);
       setMarkerResults(foundMarkers);
     } catch {
       setMarkerResults([]);
+    }
+
+    if (coordHit) {
+      searchController.current?.abort();
+      searchController.current = null;
+      setResults([]);
+      setError(null);
+      setLoading(false);
+      return;
     }
 
     if (text.length < 2) {
@@ -72,13 +94,20 @@ export function usePlaceSearch() {
     }
   }, [query]);
 
-  // Haetaan omat merkit heti kirjoittaessa ja Nominatim 1 s viiveellä
+  // Haetaan koordinaatit ja omat merkit heti kirjoittaessa, Nominatim 1 s viiveellä
   useEffect(() => {
+    if (skipNextEffectRef.current) {
+      skipNextEffectRef.current = false;
+      return;
+    }
     const text = query.trim();
     if (!text) {
       clearResults();
       return;
     }
+
+    const coordHit = parseCoordinateQuery(text);
+    setCoordinateResult(coordHit);
 
     let cancelled = false;
     void searchSavedMarkers(text)
@@ -88,6 +117,15 @@ export function usePlaceSearch() {
       .catch(() => {
         if (!cancelled) setMarkerResults([]);
       });
+
+    if (coordHit) {
+      searchController.current?.abort();
+      searchController.current = null;
+      setResults([]);
+      setError(null);
+      setLoading(false);
+      return () => { cancelled = true; };
+    }
 
     if (text.length < 2) {
       setResults([]);
@@ -111,11 +149,13 @@ export function usePlaceSearch() {
   return {
     query,
     setQuery,
+    coordinateResult,
     results,
     markerResults,
     loading,
     error,
     search,
+    applySelection,
     clearResults,
     resetSearch,
   };

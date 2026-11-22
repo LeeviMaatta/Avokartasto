@@ -1,8 +1,9 @@
-import { Search, X, Loader2, MapPin } from "lucide-react";
+import { Search, X, Loader2, MapPin, Crosshair } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useMapStore } from "../../../store/mapStore";
 import type { NominatimSearchHit } from "../services/nominatimService";
 import type { MarkerSearchHit } from "../../markers/domain/markerSearch";
+import type { CoordinateSearchHit } from "../domain/coordinateParser";
 import { focusMapViewport, getNavigableItems } from "../../../shared/keyboardNavigation";
 import { usePlaceSearch } from "../hooks/usePlaceSearch";
 
@@ -10,11 +11,13 @@ export default function SearchBar() {
   const {
     query,
     setQuery,
+    coordinateResult,
     results,
     markerResults,
     loading,
     error,
     search,
+    applySelection,
     clearResults,
     resetSearch,
   } = usePlaceSearch();
@@ -56,15 +59,20 @@ export default function SearchBar() {
     const lon = Number(result.lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     window.dispatchEvent(new CustomEvent("map-search-location", { detail: { lat, lon } }));
-    setQuery(result.display_name);
-    clearResults();
+    applySelection(result.display_name);
   };
 
   const selectMarker = (hit: MarkerSearchHit) => {
     window.dispatchEvent(new CustomEvent("map-search-location", { detail: { lat: hit.lat, lon: hit.lon } }));
-    setQuery(hit.title);
-    clearResults();
+    applySelection(hit.title);
   };
+
+  const selectCoordinate = (hit: CoordinateSearchHit) => {
+    window.dispatchEvent(new CustomEvent("map-search-location", { detail: { lat: hit.lat, lon: hit.lon } }));
+    applySelection(hit.label);
+  };
+
+  const hasDropdown = Boolean(coordinateResult) || markerResults.length > 0 || results.length > 0 || Boolean(error);
 
   return (
     <div
@@ -75,7 +83,14 @@ export default function SearchBar() {
       <div id="map-compass-slot" className="map-compass-slot pointer-events-auto absolute left-full top-[2px] ml-1.5 sm:ml-2" />
       <form
         className="flex items-center rounded-xl border border-slate-200/80 bg-white/95 p-1 shadow-lg backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95"
-        onSubmit={(event) => { event.preventDefault(); void search(); }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (coordinateResult) {
+            selectCoordinate(coordinateResult);
+          } else {
+            void search();
+          }
+        }}
       >
         <Search size={18} className="m-2 shrink-0 text-slate-400 dark:text-zinc-500" />
         <input
@@ -93,7 +108,7 @@ export default function SearchBar() {
             } else if (event.key === "Escape") {
               event.preventDefault();
               event.stopPropagation();
-              if (markerResults.length > 0 || results.length > 0 || error) {
+              if (hasDropdown) {
                 clearResults();
               } else {
                 inputRef.current?.blur();
@@ -101,8 +116,8 @@ export default function SearchBar() {
               }
             }
           }}
-          placeholder="Hae paikkaa, osoitetta tai omaa merkkiä..."
-          aria-label="Hae paikkaa"
+          placeholder="Hae paikkaa, osoitetta, koordinaatteja tai merkkiä..."
+          aria-label="Hae paikkaa tai koordinaatteja"
         />
         {loading && <Loader2 size={15} className="animate-spin text-blue-500 mr-1 shrink-0" />}
         {query && (
@@ -124,7 +139,7 @@ export default function SearchBar() {
         </button>
       </form>
 
-      {(markerResults.length > 0 || results.length > 0 || error) && (
+      {hasDropdown && (
         <div
           ref={resultsRef}
           onKeyDown={(event) => {
@@ -149,6 +164,27 @@ export default function SearchBar() {
           className="mt-1.5 overflow-hidden rounded-xl border border-slate-200 bg-white/98 text-xs text-slate-800 shadow-xl backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/98 dark:text-zinc-100"
         >
           <div className="max-h-60 overflow-y-auto">
+            {coordinateResult && (
+              <button
+                key="coordinate-hit"
+                type="button"
+                className="flex w-full items-center justify-between gap-2 border-b border-slate-100 px-3.5 py-2.5 text-left transition hover:bg-slate-100 last:border-none dark:border-zinc-800/80 dark:hover:bg-zinc-900"
+                onClick={() => selectCoordinate(coordinateResult)}
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <Crosshair size={14} className="shrink-0 text-blue-600 dark:text-blue-400" />
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{coordinateResult.label}</div>
+                    <div className="truncate text-[10px] text-slate-500 dark:text-zinc-400">
+                      Siirry täsmälliseen koordinaattipisteeseen
+                    </div>
+                  </div>
+                </div>
+                <span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950/70 dark:text-blue-300">
+                  {coordinateResult.format}
+                </span>
+              </button>
+            )}
             {markerResults.map((hit) => (
               <button
                 key={`marker:${hit.id}`}
